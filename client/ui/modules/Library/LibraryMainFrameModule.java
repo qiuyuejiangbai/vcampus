@@ -18,11 +18,13 @@ public class LibraryMainFrameModule extends JFrame {
     private LibraryBookSearchModule libraryBookSearchModule;
     private LibraryBorrowHistoryModule libraryBorrowHistoryModule;
     private LibraryBookManageModule libraryBookManageModule;
-    private LibraryMainPageModule libraryMainPageModule;
+    private LibraryBookAddModule libraryBookAddModule;
 
     // 新增的文献模块
+
     private LibraryDocumentSearchModule libraryDocumentSearchModule;
     private LibraryDocumentManageModule libraryDocumentManageModule;
+
 
     public LibraryMainFrameModule(UserVO currentUser) {
         this.currentUser = currentUser;
@@ -72,7 +74,7 @@ public class LibraryMainFrameModule extends JFrame {
         topBar.setBorder(BorderFactory.createMatteBorder(0, 0, 4, 0, new Color(0, 0, 0, 30)));
 
         // 左侧标题
-        JLabel titleLabel = new JLabel("图书馆主页");
+        JLabel titleLabel = new JLabel("图书馆");
         titleLabel.setForeground(Color.WHITE);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 16f));
         titleLabel.setBorder(BorderFactory.createEmptyBorder(0, 16, 0, 0));
@@ -120,25 +122,24 @@ public class LibraryMainFrameModule extends JFrame {
 
         // === 学生 / 普通用户 ===
         if (user.getRole() == 0 || user.getRole() == 1) {
-            libraryMainPageModule = new LibraryMainPageModule(currentUser);
-            contentPanel.add(libraryMainPageModule, "mainPage");
             libraryBookSearchModule = new LibraryBookSearchModule(controller, currentUser);
             libraryBorrowHistoryModule = new LibraryBorrowHistoryModule(user.getUserId());
+
+            //libraryDocumentSearchModule = new LibraryDocumentSearchModule(controller);
+
+            contentPanel.add(libraryBookSearchModule, "search");
+            contentPanel.add(libraryBorrowHistoryModule, "history");
+            //contentPanel.add(libraryDocumentSearchModule, "docSearch");
             libraryDocumentSearchModule = new LibraryDocumentSearchModule(controller);
 
             contentPanel.add(libraryBookSearchModule, "search");
             contentPanel.add(libraryBorrowHistoryModule, "history");
             contentPanel.add(libraryDocumentSearchModule, "docSearch");
 
-            JToggleButton btnHome = createNavButton.apply("主页");
+
             JToggleButton btnSearch = createNavButton.apply("图书检索");
             JToggleButton btnHistory = createNavButton.apply("借阅记录");
             JToggleButton btnDocSearch = createNavButton.apply("文献检索");
-
-            btnHome.addActionListener(e -> {
-                cardLayout.show(contentPanel, "mainPage");
-                titleLabel.setText("图书馆主页");
-            });
 
             btnSearch.addActionListener(e -> {
                 libraryBookSearchModule.refreshTable();
@@ -153,24 +154,34 @@ public class LibraryMainFrameModule extends JFrame {
             });
 
             btnDocSearch.addActionListener(e -> {
-                libraryDocumentSearchModule.refreshTable();
                 cardLayout.show(contentPanel, "docSearch");
                 titleLabel.setText("文献检索");
             });
 
-            btnHome.setSelected(true);
-            cardLayout.show(contentPanel, "mainPage");
+            btnSearch.setSelected(true);
+            cardLayout.show(contentPanel, "search");
         }
 
         // === 管理员 ===
         if (user.getRole() == 2) {
             libraryBookManageModule = new LibraryBookManageModule(controller);
+            libraryBookAddModule = new LibraryBookAddModule(controller);
+
+          //  libraryDocumentManageModule = new LibraryDocumentManageModule(controller);
+
+            contentPanel.add(libraryBookManageModule, "manage");
+            contentPanel.add(libraryBookAddModule, "add");
+           // contentPanel.add(libraryDocumentManageModule, "docManage");
+
             libraryDocumentManageModule = new LibraryDocumentManageModule(controller);
 
             contentPanel.add(libraryBookManageModule, "manage");
+            contentPanel.add(libraryBookAddModule, "add");
             contentPanel.add(libraryDocumentManageModule, "docManage");
 
+
             JToggleButton btnManage = createNavButton.apply("图书管理");
+            JToggleButton btnAdd = createNavButton.apply("新增书籍");
             JToggleButton btnDocManage = createNavButton.apply("文献管理");
 
             btnManage.addActionListener(e -> {
@@ -179,8 +190,13 @@ public class LibraryMainFrameModule extends JFrame {
                 titleLabel.setText("图书管理");
             });
 
+            btnAdd.addActionListener(e -> {
+                cardLayout.show(contentPanel, "add");
+                titleLabel.setText("新增书籍");
+            });
+
             btnDocManage.addActionListener(e -> {
-                libraryDocumentManageModule.refreshTable();
+             //   libraryDocumentManageModule.refreshTable();
                 cardLayout.show(contentPanel, "docManage");
                 titleLabel.setText("文献管理");
             });
