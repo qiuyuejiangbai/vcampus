@@ -6,17 +6,12 @@ import client.ui.integration.ModuleRegistry;
 import common.vo.ThreadVO;
 import common.vo.PostVO;
 import common.vo.UserVO;
-import common.vo.ForumSectionVO;
 import client.ui.dashboard.components.CircularAvatar;
-import client.ui.dialog.CreateThreadDialog;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import java.awt.*;
-import java.awt.geom.RoundRectangle2D;
-import java.awt.image.BufferedImage;
-import java.awt.RenderingHints;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -42,70 +37,44 @@ public class StudentForumModule implements IModuleView {
     // 帖子详情视图组件
     private JPanel threadDetailPanel;
     private JLabel threadTitleLabel;
-    private JLabel threadCategoryTag;
     private JTextArea threadContentArea;
     private JLabel threadAuthorLabel;
     private JLabel threadTimeLabel;
     private JLabel threadReplyCountLabel;
-    private JLabel likeCountLabel; // 点赞数量标签
     private JPanel threadTagPanel;
     private JScrollPane replyScrollPane;
     private JPanel replyListPanel;
     private JTextArea replyTextArea;
     private JButton replyButton;
     private JButton backToListButton;
-    private JLabel commentSectionTitle; // 评论区标题标签
+    private JPanel actionPanel;
+    private JToggleButton likeToggle;
+    private JToggleButton favoriteToggle;
+    private JButton shareButton;
     
-    
-    // 公告区域引用：用于动态刷新
-    private JPanel announcementContentPanel;
-    
-    
+    // 发帖对话框组件
+    private JDialog createThreadDialog;
+    private JTextField threadTitleField;
+    private JTextArea threadContentField;
+    private JComboBox<String> categoryComboBox;
+    private JLabel contentCounterLabel;
+    private JButton insertImageButton;
+    private JButton insertAttachmentButton;
+    private JButton submitThreadButton;
+    private JButton cancelThreadButton;
     
     // 当前用户和管理员权限
     private UserVO currentUser;
     private boolean isAdmin = false;
     
-    // 数据
+    // 模拟数据
     private List<ThreadVO> threads;
     private List<PostVO> replies;
-    private List<ForumSectionVO> sections;
     private ThreadVO currentThread;
-    // 当前热门板块筛选：使用分区ID（null 表示不过滤）
-    private Integer currentSectionIdFilter;
-    // 热门板块项引用与选中项
-    private java.util.List<JPanel> hotSectionPanels;
-    private JPanel selectedHotSectionPanel;
-    // 热门板块内容容器（用于动态刷新）
-    private JPanel hotSectionsContentPanel;
-    // 发帖分区下拉的数据缓存
-    private java.util.List<ForumSectionVO> comboSections;
-
-    // 排序模式
-    private enum SortMode { LATEST, HOT, ESSENCE }
-    private SortMode currentSortMode = SortMode.LATEST;
-
-    // 防止短时间内重复发送获取帖子请求
-    private volatile boolean isFetchingThreads = false;
-    // 避免重复初始化导致的重复首轮拉取
-    private volatile boolean hasInitialized = false;
-    // 刷新点击节流（间隔毫秒）
-    private static final int REFRESH_CLICK_THROTTLE_MS = 500;
-    private volatile long lastRefreshClickAtMs = 0L;
-
-    // 搜索相关状态
-    private boolean isSearchMode = false;        // 是否处于搜索模式
-    private String currentSearchKeyword = null;  // 当前搜索关键词
-    private List<ThreadVO> searchResults = new ArrayList<>(); // 搜索结果
-    private JTextField searchFieldRef = null;    // 搜索框引用，用于清空文本
 
     public StudentForumModule() { 
-        // 先初始化数据容器，避免在构建UI过程中（如刷新下拉框）发生空指针
-        threads = new ArrayList<>();
-        replies = new ArrayList<>();
-        sections = new ArrayList<>();
-        comboSections = new ArrayList<>();
         buildUI(); 
+        initMockData();
     }
 
     private void buildUI() {
@@ -123,6 +92,8 @@ public class StudentForumModule implements IModuleView {
         // 创建帖子详情视图
         createThreadDetailView();
         
+        // 创建发帖对话框
+        createThreadDialog();
         
         // 添加视图到主面板
         mainPanel.add(threadListPanel, "LIST");
@@ -138,47 +109,12 @@ public class StudentForumModule implements IModuleView {
      * 加载并缩放图标到指定尺寸（用于按钮/标签的统一大小）。
      */
     private ImageIcon loadScaledIcon(String path, int width, int height) {
-        if (path == null || path.trim().isEmpty()) return null;
-        final String normalized = path.replace('\\', '/');
-        
         try {
-            // 候选路径（类路径变体 + 资源目录前缀）
-            String cp1 = normalized;
-            String cp2 = normalized.startsWith("/") ? normalized.substring(1) : "/" + normalized;
-            String cp3 = normalized.startsWith("resources/") ? normalized : ("resources/" + normalized);
-            String cp4 = cp3.startsWith("/") ? cp3.substring(1) : "/" + cp3;
-            
-            String[] candidates = new String[] { cp1, cp2, cp3, cp4 };
-            
-            // 从当前线程的 ClassLoader 与类的 ClassLoader 依次尝试
-            ClassLoader cl1 = Thread.currentThread().getContextClassLoader();
-            ClassLoader cl2 = getClass().getClassLoader();
-            for (String p : candidates) {
-                if (p == null || p.trim().isEmpty()) continue;
-                try {
-                    java.net.URL url = (cl1 != null ? cl1.getResource(p) : null);
-                    if (url == null && cl2 != null) url = cl2.getResource(p);
-                    if (url != null) {
-                        Image img = new ImageIcon(url).getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
-                        return new ImageIcon(img);
-                    }
-                } catch (Exception ignored) { }
-            }
-            
-            // 文件系统（相对/绝对路径）
-            for (String p : new String[] { normalized, cp3 }) {
-                try {
-                    java.io.File file = new java.io.File(p);
-                    if (file.exists()) {
-                        Image img = new ImageIcon(file.getAbsolutePath()).getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
-                        return new ImageIcon(img);
-                    }
-                } catch (Exception ignored) { }
-            }
-        } catch (Exception e) {
-            System.err.println("加载图标失败: " + normalized + " - " + e.getMessage());
-        }
-        return null;
+            java.net.URL url = getClass().getClassLoader().getResource(path);
+            if (url == null) return null;
+            Image img = new ImageIcon(url).getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
+            return new ImageIcon(img);
+        } catch (Exception ignored) { return null; }
     }
     
     private void createThreadListView() {
@@ -200,35 +136,14 @@ public class StudentForumModule implements IModuleView {
         hotCategoryButton = createCategoryButton("最热", false);
         essenceCategoryButton = createCategoryButton("精华", false);
 
-        // 默认选中"最新"
+        // 默认选中“最新”
         selectedCategoryButton = latestCategoryButton;
 
-        // 点击切换选中状态并应用排序
+        // 点击切换选中状态（仅样式切换，当前不改变排序逻辑）
         java.awt.event.ActionListener categoryClick = new java.awt.event.ActionListener() {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) {
                 JButton src = (JButton) e.getSource();
-                if (src == latestCategoryButton) {
-                    currentSortMode = SortMode.LATEST;
-                    System.out.println("[DEBUG][精华功能] 切换到最新模式");
-                } else if (src == hotCategoryButton) {
-                    currentSortMode = SortMode.HOT;
-                    System.out.println("[DEBUG][精华功能] 切换到热门模式");
-                } else if (src == essenceCategoryButton) {
-                    currentSortMode = SortMode.ESSENCE;
-                    System.out.println("[DEBUG][精华功能] *** 用户点击精华按钮 *** 切换到精华模式，开始筛选精华帖子");
-                    System.out.println("[DEBUG][精华功能] 当前帖子总数: " + (threads != null ? threads.size() : 0));
-                    if (threads != null) {
-                        int essenceCount = 0;
-                        for (ThreadVO t : threads) {
-                            if (t.getIsEssence() != null && t.getIsEssence()) {
-                                essenceCount++;
-                            }
-                        }
-                        System.out.println("[DEBUG][精华功能] 可用精华帖子数量: " + essenceCount);
-                    }
-                }
                 updateCategorySelection(src);
-                refreshThreadList();
             }
         };
         latestCategoryButton.addActionListener(categoryClick);
@@ -285,9 +200,8 @@ public class StudentForumModule implements IModuleView {
         searchIcon.setBorder(new EmptyBorder(0, 0, 0, 0));
         searchBox.add(searchIcon, BorderLayout.WEST);
 
-        // 无边框输入框，带占位符"搜索内容..."
+        // 无边框输入框，带占位符“搜索内容...”
         JTextField searchField = new JTextField();
-        searchFieldRef = searchField; // 保存引用
         searchField.setFont(UIManager.getFont("TextField.font").deriveFont(Font.PLAIN, 14f));
         searchField.setBorder(new EmptyBorder(0, 0, 0, 0));
         searchField.setOpaque(false);
@@ -324,102 +238,24 @@ public class StudentForumModule implements IModuleView {
         searchField.addMouseListener(hoverHandler);
         searchIcon.addMouseListener(hoverHandler);
 
-        // 添加搜索功能：回车键触发搜索
-        searchField.addKeyListener(new java.awt.event.KeyAdapter() {
-            @Override
-            public void keyPressed(java.awt.event.KeyEvent e) {
-                if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ENTER) {
-                    String keyword = searchField.getText().trim();
-                    if (!keyword.isEmpty() && !placeholder.equals(keyword)) {
-                        performSearch(keyword);
-                    }
-                }
-            }
-        });
-        
-        // 搜索图标点击事件
-        searchIcon.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                String keyword = searchField.getText().trim();
-                if (!keyword.isEmpty() && !placeholder.equals(keyword)) {
-                    performSearch(keyword);
-                }
-            }
-        });
-
         searchBox.add(searchField, BorderLayout.CENTER);
 
         // 刷新图标按钮（使用资源图标，点击刷新）
         ImageIcon refreshIcon = loadScaledIcon("icons/刷新.png", 18, 18);
-        refreshButton = new JButton() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                int w = getWidth();
-                int h = getHeight();
-                int arc2 = 16; // 圆角
-
-                ButtonModel model = getModel();
-                Color fill = new Color(255, 255, 255, 0); // 默认透明
-                if (model.isPressed()) {
-                    fill = new Color(210, 238, 224); // 按下更深的浅绿
-                } else if (model.isRollover()) {
-                    fill = new Color(223, 245, 232); // 悬浮浅绿
-                }
-
-                if (fill.getAlpha() > 0) {
-                    g2.setColor(fill);
-                    g2.fillRoundRect(0, 0, w - 1, h - 1, arc2, arc2);
-                }
-
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
+        refreshButton = new JButton();
         if (refreshIcon != null) refreshButton.setIcon(refreshIcon);
-        refreshButton.setHorizontalAlignment(SwingConstants.CENTER);
-        refreshButton.setVerticalAlignment(SwingConstants.CENTER);
         refreshButton.setToolTipText("刷新");
         refreshButton.setFocusPainted(false);
         refreshButton.setBorderPainted(false);
         refreshButton.setContentAreaFilled(false);
         refreshButton.setOpaque(false);
-        refreshButton.setRolloverEnabled(true);
         refreshButton.setPreferredSize(new Dimension(boxHeight, boxHeight));
         refreshButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        refreshButton.addActionListener(e -> {
-            long now = System.currentTimeMillis();
-            if (now - lastRefreshClickAtMs < REFRESH_CLICK_THROTTLE_MS) {
-                System.out.println("[Forum][Client] 忽略刷新：点击过于频繁");
-                return;
-            }
-            lastRefreshClickAtMs = now;
-            System.out.println("[Forum][Client] 点击刷新按钮");
-            
-            // 如果处于搜索模式，退出搜索模式
-            if (isSearchMode) {
-                exitSearchMode();
-            }
-            
-            // 刷新时回到列表视图，清除分区筛选，确保可见变化
-            try {
-                currentSectionIdFilter = null;
-                if (cardLayout != null && mainPanel != null) {
-                    cardLayout.show(mainPanel, "LIST");
-                    // 强制完整重绘，避免列表显示问题
-                    SwingUtilities.invokeLater(() -> {
-                        threadListPanel.revalidate();
-                        threadListPanel.repaint();
-                    });
-                }
-            } catch (Exception ignore) {}
-            // 同步刷新分区与帖子
-            try { fetchSectionsFromServer(); } catch (Exception ignore) {}
-            fetchThreadsFromServer();
+        refreshButton.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseEntered(java.awt.event.MouseEvent evt) { refreshButton.setOpaque(true); refreshButton.setBackground(new Color(243, 244, 246)); }
+            public void mouseExited(java.awt.event.MouseEvent evt) { refreshButton.setOpaque(false); refreshButton.setBackground(new Color(0,0,0,0)); }
         });
+        refreshButton.addActionListener(e -> refreshThreadList());
 
         searchPanel.add(searchBox);
         searchPanel.add(refreshButton);
@@ -439,6 +275,7 @@ public class StudentForumModule implements IModuleView {
         
         // 发帖按钮（改为悬浮在滚动区域右下角）
         createThreadButton = createCirclePlusButton();
+        createThreadButton.addActionListener(e -> showCreateThreadDialog());
         
         JPanel threadItemsPanel = new JPanel();
         threadItemsPanel.setLayout(new BoxLayout(threadItemsPanel, BoxLayout.Y_AXIS));
@@ -452,12 +289,6 @@ public class StudentForumModule implements IModuleView {
         threadScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         threadScrollPane.setBorder(null);
         threadScrollPane.getViewport().setBackground(new Color(248, 249, 250));
-        // 视口尺寸变化时，同步子项宽度，保证横向始终铺满
-        threadScrollPane.getViewport().addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override public void componentResized(java.awt.event.ComponentEvent e) {
-                syncThreadItemsWidth();
-            }
-        });
         
         // 增加滑动灵敏度
         JScrollBar verticalScrollBar = threadScrollPane.getVerticalScrollBar();
@@ -549,144 +380,75 @@ public class StudentForumModule implements IModuleView {
     private JPanel createAnnouncementPanel() {
         // 外层留白：与右侧容器产生间距
         JPanel wrap = new JPanel(new BorderLayout());
-        wrap.setOpaque(true);
-        wrap.setBackground(new Color(248, 249, 250));
+        wrap.setOpaque(false);
         wrap.setBorder(new EmptyBorder(12, 12, 12, 12));
 
-        // 圆角卡片：无描边，仅白色圆角背景，带阴影效果
+        // 圆角卡片：无描边，仅白色圆角背景
         JPanel panel = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                
-                int arc = 16;
-                int shadowOffset = 4;
-                int shadowBlur = 8;
-                
-                // 绘制阴影
-                g2.setColor(new Color(0, 0, 0, 20));
-                g2.fillRoundRect(shadowOffset, shadowOffset, 
-                    getWidth() - shadowOffset, getHeight() - shadowOffset, arc, arc);
-                
-                // 绘制主体
                 g2.setColor(Color.WHITE);
-                g2.fillRoundRect(0, 0, getWidth() - shadowOffset, getHeight() - shadowOffset, arc, arc);
-                
+                int arc = 12;
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
                 g2.dispose();
             }
         };
         panel.setOpaque(false);
         panel.setBorder(new EmptyBorder(12, 12, 12, 12));
-        panel.setPreferredSize(new Dimension(0, 220));
+        panel.setPreferredSize(new Dimension(0, 180));
         
-        // 标题 - 带公告图标
-        JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        titlePanel.setOpaque(false);
-        titlePanel.setBorder(new EmptyBorder(15, 15, 10, 15));
-
-        ImageIcon announcementIconImg = loadScaledIcon("icons/公告.png", 20, 20);
-        JLabel announcementIcon = new JLabel(announcementIconImg);
-        announcementIcon.setBorder(new EmptyBorder(0, 0, 0, 8));
-
+        // 标题
         JLabel titleLabel = new JLabel("公告");
         titleLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD, 16f));
         titleLabel.setForeground(new Color(31, 41, 55));
-
-        titlePanel.add(announcementIcon);
-        titlePanel.add(titleLabel);
+        titleLabel.setBorder(new EmptyBorder(15, 15, 10, 15));
         
-        // 公告内容：动态生成管理员发布的帖子标题
-        announcementContentPanel = new JPanel();
-        announcementContentPanel.setLayout(new BoxLayout(announcementContentPanel, BoxLayout.Y_AXIS));
-        announcementContentPanel.setBackground(new Color(255, 255, 255));
-        announcementContentPanel.setBorder(new EmptyBorder(0, 15, 15, 15));
+        // 公告内容
+        JPanel contentPanel = new JPanel();
+        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+        contentPanel.setBackground(new Color(255, 255, 255));
+        contentPanel.setBorder(new EmptyBorder(0, 15, 15, 15));
         
-        panel.add(titlePanel, BorderLayout.NORTH);
-        panel.add(announcementContentPanel, BorderLayout.CENTER);
+        // 模拟公告数据
+        String[] announcements = {
+            "欢迎使用校园论坛系统！",
+            "请遵守论坛规则，文明发言。",
+            "期末考试安排已发布，请查看。",
+            "校园活动报名开始，欢迎参与。"
+        };
+        
+        for (String announcement : announcements) {
+            JLabel announcementLabel = new JLabel("• " + announcement);
+            announcementLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
+            announcementLabel.setForeground(new Color(107, 114, 128));
+            announcementLabel.setBorder(new EmptyBorder(2, 0, 2, 0));
+            contentPanel.add(announcementLabel);
+        }
+        
+        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(contentPanel, BorderLayout.CENTER);
 
         wrap.add(panel, BorderLayout.CENTER);
         return wrap;
-    }
-
-    // 依据 threads 刷新公告区域：仅显示管理员发帖（isAnnouncement=true）的标题
-    private void refreshAnnouncements() {
-        System.out.println("[DEBUG] ========== 开始刷新公告区域 ==========");
-        if (announcementContentPanel == null) {
-            System.out.println("[DEBUG] 公告面板为null，无法刷新");
-            return;
-        }
-        announcementContentPanel.removeAll();
-        int shown = 0;
-        if (threads != null) {
-            System.out.println("[DEBUG] 检查公告帖子，总帖子数: " + threads.size());
-            for (ThreadVO t : threads) {
-                if (t != null) {
-                    System.out.println("[DEBUG] 检查帖子 - ID=" + t.getThreadId() + 
-                                     ", 标题=" + t.getTitle() + 
-                                     ", 是否公告=" + t.getIsAnnouncement());
-                    if (t.getIsAnnouncement()) {
-                        System.out.println("[DEBUG] 找到公告帖子，添加到公告区域: " + t.getTitle());
-                        JLabel label = new JLabel("• " + (t.getTitle() != null ? t.getTitle() : "(无标题)"));
-                        label.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
-                        label.setForeground(new Color(107, 114, 128));
-                        label.setBorder(new EmptyBorder(4, 0, 4, 0));
-                        label.setCursor(new Cursor(Cursor.HAND_CURSOR));
-                        // 悬停变色
-                        label.addMouseListener(new java.awt.event.MouseAdapter() {
-                            public void mouseEntered(java.awt.event.MouseEvent evt) { label.setForeground(new Color(24, 121, 78)); }
-                            public void mouseExited(java.awt.event.MouseEvent evt) { label.setForeground(new Color(107, 114, 128)); }
-                            public void mouseClicked(java.awt.event.MouseEvent evt) { showThreadDetail(t); }
-                        });
-                        announcementContentPanel.add(label);
-                        shown++;
-                    }
-                }
-            }
-        } else {
-            System.out.println("[DEBUG] threads列表为null");
-        }
-        if (shown == 0) {
-            System.out.println("[DEBUG] 没有找到公告帖子，显示'暂无公告'");
-            JLabel empty = new JLabel("暂无公告");
-            empty.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 13f));
-            empty.setForeground(new Color(156, 163, 175));
-            empty.setBorder(new EmptyBorder(4, 0, 4, 0));
-            announcementContentPanel.add(empty);
-        } else {
-            System.out.println("[DEBUG] 公告区域刷新完成，显示公告数: " + shown);
-        }
-        announcementContentPanel.revalidate();
-        announcementContentPanel.repaint();
     }
     
     private JPanel createHotSectionsPanel() {
         // 外层留白：分隔于其他区域
         JPanel wrap = new JPanel(new BorderLayout());
-        wrap.setOpaque(true);
-        wrap.setBackground(new Color(248, 249, 250));
+        wrap.setOpaque(false);
         wrap.setBorder(new EmptyBorder(12, 12, 12, 12));
 
-        // 圆角卡片：无描边，仅白色圆角背景，带阴影效果
+        // 圆角卡片：无描边，仅白色圆角背景
         JPanel panel = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                
-                int arc = 16;
-                int shadowOffset = 4;
-                int shadowBlur = 8;
-                
-                // 绘制阴影
-                g2.setColor(new Color(0, 0, 0, 20));
-                g2.fillRoundRect(shadowOffset, shadowOffset, 
-                    getWidth() - shadowOffset, getHeight() - shadowOffset, arc, arc);
-                
-                // 绘制主体
                 g2.setColor(Color.WHITE);
-                g2.fillRoundRect(0, 0, getWidth() - shadowOffset, getHeight() - shadowOffset, arc, arc);
-                
+                int arc = 12;
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
                 g2.dispose();
             }
         };
@@ -694,180 +456,62 @@ public class StudentForumModule implements IModuleView {
         panel.setBorder(new EmptyBorder(12, 12, 12, 12));
         panel.setPreferredSize(new Dimension(0, 260));
         
-        // 标题 - 带火热图标
-        JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        titlePanel.setOpaque(false);
-        titlePanel.setBorder(new EmptyBorder(15, 15, 10, 15));
-        
-        // 加载预售火热图标（类路径）
-        ImageIcon fireIcon = loadScaledIcon("icons/预售火热.png", 20, 20);
-        JLabel fireIconLabel = new JLabel(fireIcon);
-        fireIconLabel.setBorder(new EmptyBorder(0, 0, 0, 8));
-        
+        // 标题
         JLabel titleLabel = new JLabel("热门板块");
         titleLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD, 16f));
         titleLabel.setForeground(new Color(31, 41, 55));
+        titleLabel.setBorder(new EmptyBorder(15, 15, 10, 15));
         
-        titlePanel.add(fireIconLabel);
-        titlePanel.add(titleLabel);
-        
-        // 板块内容（动态）
+        // 板块内容
         JPanel contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBackground(new Color(255, 255, 255));
         contentPanel.setBorder(new EmptyBorder(0, 15, 15, 15));
-        hotSectionsContentPanel = contentPanel;
         
-        // 选中管理
-        final Color selectedBg = new Color(223, 245, 232); // 浅绿色
-        hotSectionPanels = new java.util.ArrayList<JPanel>();
-
-        // 初始化一次（空数据时显示提示）
-        refreshHotSections();
+        // 模拟热门板块数据
+        String[][] hotSections = {
+            {"学习交流", "156"},
+            {"校园生活", "89"},
+            {"技术讨论", "67"},
+            {"课程分享", "45"},
+            {"活动信息", "32"}
+        };
         
-        panel.add(titlePanel, BorderLayout.NORTH);
+        for (String[] section : hotSections) {
+            JPanel sectionPanel = new JPanel(new BorderLayout());
+            sectionPanel.setBackground(new Color(255, 255, 255));
+            sectionPanel.setBorder(new EmptyBorder(5, 0, 5, 0));
+            sectionPanel.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            
+            JLabel nameLabel = new JLabel(section[0]);
+            nameLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
+            nameLabel.setForeground(new Color(31, 41, 55));
+            
+            JLabel countLabel = new JLabel(section[1] + " 帖子");
+            countLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
+            countLabel.setForeground(new Color(107, 114, 128));
+            
+            sectionPanel.add(nameLabel, BorderLayout.WEST);
+            sectionPanel.add(countLabel, BorderLayout.EAST);
+            
+            // 添加悬停效果
+            sectionPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+                public void mouseEntered(java.awt.event.MouseEvent evt) {
+                    sectionPanel.setBackground(new Color(249, 250, 251));
+                }
+                public void mouseExited(java.awt.event.MouseEvent evt) {
+                    sectionPanel.setBackground(new Color(255, 255, 255));
+                }
+            });
+            
+            contentPanel.add(sectionPanel);
+        }
+        
+        panel.add(titleLabel, BorderLayout.NORTH);
         panel.add(contentPanel, BorderLayout.CENTER);
 
         wrap.add(panel, BorderLayout.CENTER);
         return wrap;
-    }
-
-    private void refreshHotSections() {
-        if (hotSectionsContentPanel == null) return;
-        hotSectionsContentPanel.removeAll();
-        hotSectionPanels = new java.util.ArrayList<JPanel>();
-        // 当有服务器分区列表时，按分区表显示全部分区；否则根据当前帖子聚合
-        if (sections != null && !sections.isEmpty()) {
-            for (ForumSectionVO sec : sections) {
-                final Integer secId = sec.getSectionId();
-                final String secName = sec.getName();
-                JPanel sectionPanel = new JPanel(new BorderLayout());
-                sectionPanel.setBackground(new Color(255, 255, 255));
-                sectionPanel.setBorder(new EmptyBorder(5, 0, 5, 0));
-                sectionPanel.setCursor(new Cursor(Cursor.HAND_CURSOR));
-                JLabel nameLabel = new JLabel(secName);
-                nameLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
-                nameLabel.setForeground(new Color(31, 41, 55));
-                // 统计该分区的帖子数
-                int count = 0;
-                if (threads != null) {
-                    for (ThreadVO t : threads) {
-                        Integer sid = t != null ? t.getSectionId() : null;
-                        if (sid != null && sid.equals(secId)) count++;
-                    }
-                }
-                JLabel countLabel = new JLabel(count + " 帖子");
-                countLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
-                countLabel.setForeground(new Color(107, 114, 128));
-                sectionPanel.add(nameLabel, BorderLayout.WEST);
-                sectionPanel.add(countLabel, BorderLayout.EAST);
-                sectionPanel.addMouseListener(new java.awt.event.MouseAdapter() {
-                    @Override public void mouseClicked(java.awt.event.MouseEvent evt) {
-                        currentSectionIdFilter = secId;
-                        selectedHotSectionPanel = sectionPanel;
-                        if (hotSectionPanels != null) {
-                            final Color selectedBg = new Color(223, 245, 232);
-                            for (JPanel p : hotSectionPanels) {
-                                if (p == selectedHotSectionPanel) p.setBackground(selectedBg);
-                                else p.setBackground(new Color(255, 255, 255));
-                            }
-                        }
-                        refreshThreadList();
-                        SwingUtilities.invokeLater(() -> {
-                            JScrollBar bar = threadScrollPane.getVerticalScrollBar();
-                            if (bar != null) bar.setValue(0);
-                        });
-                    }
-                    @Override public void mouseEntered(java.awt.event.MouseEvent evt) {
-                        // 悬浮：若非选中项，则显示浅绿色
-                        if (sectionPanel != selectedHotSectionPanel) {
-                            sectionPanel.setBackground(new Color(223, 245, 232));
-                        }
-                    }
-                    @Override public void mouseExited(java.awt.event.MouseEvent evt) {
-                        // 离开：若非选中项，恢复白色
-                        if (sectionPanel != selectedHotSectionPanel) {
-                            sectionPanel.setBackground(new Color(255, 255, 255));
-                        }
-                    }
-                });
-                hotSectionsContentPanel.add(sectionPanel);
-                hotSectionPanels.add(sectionPanel);
-            }
-        } else {
-            java.util.Map<String, Integer> sectionToCount = new java.util.LinkedHashMap<String, Integer>();
-            if (threads != null) {
-                for (ThreadVO t : threads) {
-                    String name = getThreadSectionName(t);
-                    if (name == null) name = "未分区";
-                    sectionToCount.put(name, sectionToCount.getOrDefault(name, 0) + 1);
-                }
-            }
-            if (sectionToCount.isEmpty()) {
-                JLabel empty = new JLabel("暂无数据");
-                empty.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 13f));
-                empty.setForeground(new Color(156, 163, 175));
-                empty.setBorder(new EmptyBorder(4, 0, 4, 0));
-                hotSectionsContentPanel.add(empty);
-            } else {
-                java.util.List<java.util.Map.Entry<String, Integer>> list = new java.util.ArrayList<java.util.Map.Entry<String, Integer>>(sectionToCount.entrySet());
-                java.util.Collections.sort(list, new java.util.Comparator<java.util.Map.Entry<String, Integer>>() {
-                    @Override public int compare(java.util.Map.Entry<String, Integer> o1, java.util.Map.Entry<String, Integer> o2) {
-                        return o2.getValue().compareTo(o1.getValue());
-                    }
-                });
-                int limit = Math.min(8, list.size());
-                final Color selectedBg = new Color(223, 245, 232);
-                for (int i = 0; i < limit; i++) {
-                    final String secName = list.get(i).getKey();
-                    final int count = list.get(i).getValue();
-                    JPanel sectionPanel = new JPanel(new BorderLayout());
-                    sectionPanel.setBackground(new Color(255, 255, 255));
-                    sectionPanel.setBorder(new EmptyBorder(5, 0, 5, 0));
-                    sectionPanel.setCursor(new Cursor(Cursor.HAND_CURSOR));
-                    JLabel nameLabel = new JLabel(secName);
-                    nameLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
-                    nameLabel.setForeground(new Color(31, 41, 55));
-                    JLabel countLabel = new JLabel(count + " 帖子");
-                    countLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
-                    countLabel.setForeground(new Color(107, 114, 128));
-                    sectionPanel.add(nameLabel, BorderLayout.WEST);
-                    sectionPanel.add(countLabel, BorderLayout.EAST);
-                    sectionPanel.addMouseListener(new java.awt.event.MouseAdapter() {
-                        @Override public void mouseClicked(java.awt.event.MouseEvent evt) {
-                            // 旧数据模式：用名称筛选
-                            currentSectionIdFilter = null;
-                            // 为兼容旧逻辑，保留名称筛选通过 getThreadSectionName
-                            // 刷新列表时将跳过ID筛选逻辑
-                            selectedHotSectionPanel = sectionPanel;
-                            for (JPanel p : hotSectionPanels) {
-                                if (p == selectedHotSectionPanel) p.setBackground(selectedBg);
-                                else p.setBackground(new Color(255, 255, 255));
-                            }
-                            refreshThreadList();
-                            SwingUtilities.invokeLater(() -> {
-                                JScrollBar bar = threadScrollPane.getVerticalScrollBar();
-                                if (bar != null) bar.setValue(0);
-                            });
-                        }
-                        @Override public void mouseEntered(java.awt.event.MouseEvent evt) {
-                            if (sectionPanel != selectedHotSectionPanel) {
-                                sectionPanel.setBackground(new Color(223, 245, 232));
-                            }
-                        }
-                        @Override public void mouseExited(java.awt.event.MouseEvent evt) {
-                            if (sectionPanel != selectedHotSectionPanel) {
-                                sectionPanel.setBackground(new Color(255, 255, 255));
-                            }
-                        }
-                    });
-                    hotSectionsContentPanel.add(sectionPanel);
-                    hotSectionPanels.add(sectionPanel);
-                }
-            }
-        }
-        hotSectionsContentPanel.revalidate();
-        hotSectionsContentPanel.repaint();
     }
     
     private void createThreadDetailView() {
@@ -881,108 +525,88 @@ public class StudentForumModule implements IModuleView {
         navPanel.setBorder(null);
         navPanel.setPreferredSize(new Dimension(0, 60));
         
-        backToListButton = createBackButton("返回");
-        backToListButton.addActionListener(e -> {
-            // 清空回复文本框的状态和输入内容
-            resetReplyInputState();
-            // 返回主界面
-            cardLayout.show(mainPanel, "LIST");
-            
-            // 强制完整重绘，避免列表显示问题
-            SwingUtilities.invokeLater(() -> {
-                threadListPanel.revalidate();
-                threadListPanel.repaint();
-            });
-        });
+        backToListButton = createStyledButton("← 返回列表", new Color(107, 114, 128));
+        backToListButton.addActionListener(e -> cardLayout.show(mainPanel, "LIST"));
         
         navPanel.add(backToListButton, BorderLayout.WEST);
         navPanel.setBorder(new EmptyBorder(10, 20, 10, 20));
         
-        // 主内容区域 - 采用卡片式布局
-        JPanel mainContentPanel = new JPanel();
-        mainContentPanel.setLayout(new BoxLayout(mainContentPanel, BoxLayout.Y_AXIS));
-        mainContentPanel.setBackground(new Color(248, 249, 250));
-        mainContentPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
+        // 帖子内容区域
+        JPanel contentPanel = new JPanel(new BorderLayout());
+        contentPanel.setBackground(new Color(255, 255, 255));
+        contentPanel.setBorder(null);
         
-        // 第一部分：帖子内容卡片 - 根据内容自动调整大小
-        JPanel postContentCard = createCardPanel();
-        // 移除固定高度限制，让卡片根据内容自动调整
-        postContentCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        // 帖子标题和元信息
+        JPanel threadHeaderPanel = new JPanel(new BorderLayout());
+        threadHeaderPanel.setBackground(new Color(255, 255, 255));
+        threadHeaderPanel.setBorder(new EmptyBorder(20, 20, 10, 20));
         
-        // 帖子内容区域 - 可滚动但无滚动条
-        JPanel postContentPanel = new JPanel(new BorderLayout());
-        postContentPanel.setBackground(new Color(255, 255, 255));
-        postContentPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
+        threadTitleLabel = new JLabel();
+        // 详情标题不太黑不太粗
+        threadTitleLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 20f));
+        threadTitleLabel.setForeground(new Color(55, 65, 81));
+        threadTitleLabel.setBorder(new EmptyBorder(0, 0, 6, 0));
         
-        // 帖子头部信息：头像、姓名、发表时间
-        JPanel postHeaderPanel = new JPanel(new BorderLayout());
-        postHeaderPanel.setBackground(new Color(255, 255, 255));
-        postHeaderPanel.setBorder(new EmptyBorder(0, 0, 15, 0));
-        
-        // 第一行：头像 + 姓名和发表时间（确保在同一行）
-        JPanel authorInfoPanel = new JPanel(new BorderLayout());
-        authorInfoPanel.setOpaque(false);
-        
-        // 左侧头像
-        CircularAvatar postAvatar = new CircularAvatar(50);
-        Image postAvatarImg = loadResourceImage("icons/默认头像.png");
-        if (postAvatarImg != null) postAvatar.setAvatarImage(postAvatarImg);
-        postAvatar.setBorderWidth(0f);
-        JPanel avatarContainer = new JPanel(new BorderLayout());
-        avatarContainer.setOpaque(false);
-        avatarContainer.setBorder(new EmptyBorder(0, 0, 0, 15));
-        // 使用BorderLayout.CENTER确保头像垂直居中对齐
-        avatarContainer.add(postAvatar, BorderLayout.CENTER);
-        
-        // 右侧姓名和发表时间 - 使用BorderLayout确保与头像垂直居中对齐
-        JPanel nameTimePanel = new JPanel(new BorderLayout());
-        nameTimePanel.setOpaque(false);
+        JPanel metaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 4));
+        metaPanel.setBackground(new Color(255, 255, 255));
         
         threadAuthorLabel = new JLabel();
-        threadAuthorLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 16f));
-        threadAuthorLabel.setForeground(new Color(31, 41, 55));
+        threadAuthorLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
+        threadAuthorLabel.setForeground(new Color(156, 163, 175));
         
         threadTimeLabel = new JLabel();
         threadTimeLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
         threadTimeLabel.setForeground(new Color(156, 163, 175));
         
-        // 将姓名和时间放在一个垂直容器中，然后整体垂直居中
-        JPanel nameTimeContainer = new JPanel();
-        nameTimeContainer.setLayout(new BoxLayout(nameTimeContainer, BoxLayout.Y_AXIS));
-        nameTimeContainer.setOpaque(false);
-        nameTimeContainer.setBorder(new EmptyBorder(15, 0, 0, 0)); // 添加15px上边距，使姓名和发表日期进一步下移
-        nameTimeContainer.add(threadAuthorLabel);
-        nameTimeContainer.add(Box.createVerticalStrut(2));
-        nameTimeContainer.add(threadTimeLabel);
+        threadReplyCountLabel = new JLabel();
+        threadReplyCountLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
+        threadReplyCountLabel.setForeground(new Color(156, 163, 175));
         
-        // 使用BorderLayout.CENTER确保内容垂直居中对齐
-        // 这样可以让内容与头像垂直居中对齐
-        nameTimePanel.add(nameTimeContainer, BorderLayout.CENTER);
+        metaPanel.add(threadAuthorLabel);
+        metaPanel.add(threadTimeLabel);
+        metaPanel.add(threadReplyCountLabel);
         
-        authorInfoPanel.add(avatarContainer, BorderLayout.WEST);
-        authorInfoPanel.add(nameTimePanel, BorderLayout.CENTER);
+        // 标签行
+        threadTagPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        threadTagPanel.setOpaque(false);
+        JPanel northStack = new JPanel();
+        northStack.setLayout(new BoxLayout(northStack, BoxLayout.Y_AXIS));
+        northStack.setOpaque(false);
+        northStack.add(threadTitleLabel);
+        northStack.add(Box.createVerticalStrut(4));
+        northStack.add(threadTagPanel);
+        threadHeaderPanel.add(northStack, BorderLayout.NORTH);
+        threadHeaderPanel.add(metaPanel, BorderLayout.SOUTH);
+
+        // 操作区：点赞/收藏/分享
+        actionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        actionPanel.setOpaque(false);
+        // 点赞使用资源图标（未点赞/已点赞）
+        ImageIcon likeIcon = loadScaledIcon("icons/点赞.png", 16, 16);
+        ImageIcon likedIcon = loadScaledIcon("icons/已点赞.png", 16, 16);
+        likeToggle = new JToggleButton();
+        likeToggle.setToolTipText("点赞");
+        likeToggle.setIcon(likeIcon);
+        if (likedIcon != null) likeToggle.setSelectedIcon(likedIcon);
+        likeToggle.setFocusPainted(false);
+        likeToggle.setBorderPainted(false);
+        likeToggle.setContentAreaFilled(false);
+        likeToggle.setOpaque(false);
+        likeToggle.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        // 收藏与分享保持文字按钮风格，后续如需资源再替换
+        favoriteToggle = createIconToggle("★", "收藏", new Color(234, 179, 8));
+        shareButton = createIconButton("⤴", "分享", new Color(59, 130, 246));
+        actionPanel.add(likeToggle);
+        actionPanel.add(favoriteToggle);
+        actionPanel.add(shareButton);
+        JPanel headerSouth = new JPanel(new BorderLayout());
+        headerSouth.setOpaque(false);
+        headerSouth.add(metaPanel, BorderLayout.NORTH);
+        headerSouth.add(actionPanel, BorderLayout.SOUTH);
+        threadHeaderPanel.remove(metaPanel);
+        threadHeaderPanel.add(headerSouth, BorderLayout.SOUTH);
         
-        // 第二行：标题（与头像左侧对齐）
-        JPanel titleContainer = new JPanel(new BorderLayout());
-        titleContainer.setOpaque(false);
-        titleContainer.setBorder(new EmptyBorder(0, 0, 5, 0)); // 减少底部间距从10到5
-        
-        threadTitleLabel = new JLabel();
-        // 标题样式：使用窗口标题栏颜色，不加粗，字体较大
-        threadTitleLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 20f));
-        threadTitleLabel.setForeground(new Color(0x1B, 0x3A, 0x2A)); // 窗口标题栏颜色
-        
-        titleContainer.add(threadTitleLabel, BorderLayout.WEST);
-        
-        // 第三行：分区标签（在标题下方）
-        JPanel sectionTagContainer = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        sectionTagContainer.setOpaque(false);
-        sectionTagContainer.setBorder(new EmptyBorder(0, 0, 10, 0)); // 减少底部间距从15到10
-        
-        threadCategoryTag = createRoundedAnimatedTag("", 999, 240);
-        sectionTagContainer.add(threadCategoryTag);
-        
-        // 第四行：帖子内容（与标题左侧对齐）- 自动调整高度
+        // 帖子内容
         threadContentArea = new JTextArea();
         threadContentArea.setFont(UIManager.getFont("TextArea.font").deriveFont(Font.PLAIN, 16f));
         threadContentArea.setForeground(new Color(31, 41, 55));
@@ -990,108 +614,17 @@ public class StudentForumModule implements IModuleView {
         threadContentArea.setWrapStyleWord(true);
         threadContentArea.setEditable(false);
         threadContentArea.setOpaque(false);
-        threadContentArea.setBorder(new EmptyBorder(0, 0, 0, 0));
+        threadContentArea.setBorder(new EmptyBorder(20, 20, 20, 20));
         
-        // 设置文本区域根据内容自动调整高度
-        threadContentArea.setRows(1); // 初始行数
-        threadContentArea.setColumns(0); // 不限制列数，让宽度自适应
+        // 回复区域
+        JPanel replySectionPanel = new JPanel(new BorderLayout());
+        replySectionPanel.setBackground(new Color(255, 255, 255));
+        replySectionPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
         
-        // 组装帖子内容区域
-        JPanel postContentContainer = new JPanel();
-        postContentContainer.setLayout(new BoxLayout(postContentContainer, BoxLayout.Y_AXIS));
-        postContentContainer.setOpaque(false);
+        JLabel replySectionTitle = new JLabel("回复");
+        replySectionTitle.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD, 18f));
+        replySectionTitle.setForeground(new Color(31, 41, 55));
         
-        postContentContainer.add(authorInfoPanel);
-        postContentContainer.add(Box.createVerticalStrut(8)); // 减少间距从10到8
-        postContentContainer.add(titleContainer);
-        postContentContainer.add(Box.createVerticalStrut(3)); // 减少间距从5到3
-        postContentContainer.add(sectionTagContainer);
-        postContentContainer.add(Box.createVerticalStrut(8)); // 减少间距从10到8
-        postContentContainer.add(threadContentArea);
-        
-        // 在帖子内容最下方添加点赞和回复标识
-        JPanel postStatsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 10));
-        postStatsPanel.setBackground(new Color(255, 255, 255));
-        postStatsPanel.setBorder(new EmptyBorder(15, 0, 0, 0));
-        
-        // 点赞按钮和数量
-        JPanel likeStatsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        likeStatsPanel.setOpaque(false);
-        
-        // 创建可点击的点赞按钮
-        ImageIcon likeIcon = loadScaledIcon("icons/点赞.png", 20, 20);
-        ImageIcon likedIcon = loadScaledIcon("icons/已点赞.png", 20, 20);
-        JToggleButton likeButton = new JToggleButton();
-        likeButton.setToolTipText("赞");
-        likeButton.setIcon(likeIcon);
-        if (likedIcon != null) likeButton.setSelectedIcon(likedIcon);
-        likeButton.setFocusPainted(false);
-        likeButton.setBorderPainted(false);
-        likeButton.setContentAreaFilled(false);
-        likeButton.setOpaque(false);
-        likeButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        
-        likeCountLabel = new JLabel("0");
-        likeCountLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
-        likeCountLabel.setForeground(new Color(107, 114, 128));
-        
-        // 添加点赞按钮事件监听器
-        likeButton.addActionListener(e -> {
-            if (currentThread != null) {
-                toggleThreadLike(currentThread.getThreadId(), likeButton, likeCountLabel);
-            }
-        });
-        
-        likeStatsPanel.add(likeButton);
-        likeStatsPanel.add(likeCountLabel);
-        
-        // 评论数量
-        JPanel commentStatsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        commentStatsPanel.setOpaque(false);
-        JLabel commentIconLabel = new JLabel();
-        Image commentIcon = loadResourceImage("icons/评论.png");
-        if (commentIcon != null) {
-            commentIconLabel.setIcon(new ImageIcon(commentIcon.getScaledInstance(16, 16, Image.SCALE_SMOOTH)));
-        }
-        threadReplyCountLabel = new JLabel("0");
-        threadReplyCountLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
-        threadReplyCountLabel.setForeground(new Color(107, 114, 128));
-        commentStatsPanel.add(commentIconLabel);
-        commentStatsPanel.add(threadReplyCountLabel);
-        
-        postStatsPanel.add(likeStatsPanel);
-        postStatsPanel.add(commentStatsPanel);
-        
-        postContentContainer.add(postStatsPanel);
-        
-        postContentPanel.add(postContentContainer, BorderLayout.CENTER);
-        
-        // 将帖子内容面板添加到卡片中
-        postContentCard.add(postContentPanel, BorderLayout.CENTER);
-        
-        // 第二部分：评论区卡片 - 固定区域（不带阴影）
-        JPanel commentSectionCard = createCardPanelWithoutShadow();
-        commentSectionCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 700)); // 固定高度700px，增大评论区范围
-        commentSectionCard.setPreferredSize(new Dimension(Integer.MAX_VALUE, 700));
-        
-        JPanel commentSectionPanel = new JPanel(new BorderLayout());
-        commentSectionPanel.setBackground(new Color(255, 255, 255));
-        commentSectionPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
-        
-        // 点赞和评论数量显示已移至帖子内容卡片底部
-        
-        // 第二行之后：评论区标题和评论列表
-        JPanel commentContentPanel = new JPanel(new BorderLayout());
-        commentContentPanel.setOpaque(true);
-        commentContentPanel.setBackground(Color.WHITE);
-        
-        // 评论区标题
-        commentSectionTitle = new JLabel("评论区");
-        commentSectionTitle.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD, 18f));
-        commentSectionTitle.setForeground(new Color(31, 41, 55));
-        commentSectionTitle.setBorder(new EmptyBorder(0, 0, 10, 0));
-        
-        // 可滚动的评论区
         replyListPanel = new JPanel();
         replyListPanel.setLayout(new BoxLayout(replyListPanel, BoxLayout.Y_AXIS));
         replyListPanel.setBackground(new Color(255, 255, 255));
@@ -1101,292 +634,140 @@ public class StudentForumModule implements IModuleView {
         replyScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         replyScrollPane.setBorder(null);
         replyScrollPane.getViewport().setBackground(new Color(255, 255, 255));
+        replyScrollPane.setPreferredSize(new Dimension(0, 300));
         
         // 增加回复区域滑动灵敏度
         JScrollBar replyVerticalScrollBar = replyScrollPane.getVerticalScrollBar();
-        replyVerticalScrollBar.setUnitIncrement(8);
-        replyVerticalScrollBar.setBlockIncrement(32);
+        replyVerticalScrollBar.setUnitIncrement(8); // 减少滚动单位，提高灵敏度
+        replyVerticalScrollBar.setBlockIncrement(32); // 减少块滚动单位
         
         // 自定义回复区域滑动条样式
         customizeScrollBar(replyVerticalScrollBar);
         
-        commentContentPanel.add(commentSectionTitle, BorderLayout.NORTH);
-        commentContentPanel.add(replyScrollPane, BorderLayout.CENTER);
-        
-        commentSectionPanel.add(commentContentPanel, BorderLayout.CENTER);
-        
-        // 将评论区面板添加到卡片中
-        commentSectionCard.add(commentSectionPanel, BorderLayout.CENTER);
-        
-        // 悬浮回复区卡片（不带阴影）
-        JPanel floatingReplyCard = createCardPanelWithoutShadow();
-        floatingReplyCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120)); // 固定高度120px
-        floatingReplyCard.setPreferredSize(new Dimension(Integer.MAX_VALUE, 120));
-        
-        // 悬浮回复区 - 使用左右分栏布局
-        JPanel floatingReplyPanel = new JPanel(new BorderLayout());
-        floatingReplyPanel.setBackground(new Color(248, 249, 250));
-        // 去掉外边框，只保留内边距
-        floatingReplyPanel.setBorder(new EmptyBorder(15, 0, 15, 20));
-        
-        // 左侧输入区域（占据大部分空间）
-        JPanel leftInputPanel = new JPanel(new BorderLayout());
-        leftInputPanel.setBackground(new Color(248, 249, 250));
+        // 回复输入区域
+        JPanel replyInputPanel = new JPanel(new BorderLayout());
+        replyInputPanel.setBackground(new Color(248, 249, 250));
+        replyInputPanel.setBorder(new LineBorder(new Color(229, 231, 235), 1));
         
         replyTextArea = new JTextArea();
         replyTextArea.setFont(UIManager.getFont("TextArea.font").deriveFont(Font.PLAIN, 14f));
         replyTextArea.setLineWrap(true);
         replyTextArea.setWrapStyleWord(true);
-        replyTextArea.setRows(5); // 增加行数从3行到5行
+        replyTextArea.setBorder(new EmptyBorder(10, 10, 10, 10));
+        replyTextArea.setRows(3);
         
-        // 设置默认无边框样式
-        replyTextArea.setBorder(new EmptyBorder(12, 20, 12, 12)); // 左边距20px，与卡片内边距对齐
+        JPanel replyButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        replyButtonPanel.setBackground(new Color(248, 249, 250));
         
-        // 创建自定义样式的回复输入框，参考搜索框的实现方式
-        final boolean[] replyHoverActive = new boolean[]{false};
-        final boolean[] replyFocusActive = new boolean[]{false};
-        
-        // 包装回复输入框到一个自定义绘制的容器中
-        JPanel replyContainer = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                
-                // 绘制背景
-                g2.setColor(Color.WHITE);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
-                
-                // 悬停/聚焦时绘制绿色描边
-                if (replyHoverActive[0] || replyFocusActive[0]) {
-                    g2.setColor(new Color(76, 175, 80));
-                    g2.setStroke(new BasicStroke(1.5f));
-                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
-                }
-                
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-        replyContainer.setOpaque(false);
-        replyContainer.setBorder(new EmptyBorder(0, 0, 0, 0));
-        
-        // 设置回复输入框为透明背景
-        replyTextArea.setOpaque(false);
-        replyTextArea.setBorder(new EmptyBorder(12, 20, 12, 12));
-        
-        // 添加鼠标悬浮效果到容器
-        java.awt.event.MouseAdapter replyHoverHandler = new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseEntered(java.awt.event.MouseEvent e) {
-                replyHoverActive[0] = true;
-                replyContainer.repaint();
-            }
-            
-            @Override
-            public void mouseExited(java.awt.event.MouseEvent e) {
-                replyHoverActive[0] = false;
-                replyContainer.repaint();
-            }
-        };
-        replyContainer.addMouseListener(replyHoverHandler);
-        replyTextArea.addMouseListener(replyHoverHandler);
-        
-        // 添加焦点变化效果
-        replyTextArea.addFocusListener(new java.awt.event.FocusListener() {
-            @Override
-            public void focusGained(java.awt.event.FocusEvent evt) {
-                replyFocusActive[0] = true;
-                replyContainer.repaint();
-            }
-            
-            @Override
-            public void focusLost(java.awt.event.FocusEvent evt) {
-                replyFocusActive[0] = false;
-                replyContainer.repaint();
-            }
-        });
-        
-        // 将回复输入框添加到容器中
-        replyContainer.add(replyTextArea, BorderLayout.CENTER);
-        
-        leftInputPanel.add(replyContainer, BorderLayout.CENTER);
-        
-        // 右侧按钮区域（占据更小部分空间，按钮位于下方）
-        JPanel rightButtonPanel = new JPanel(new BorderLayout());
-        rightButtonPanel.setBackground(new Color(248, 249, 250));
-        rightButtonPanel.setPreferredSize(new Dimension(90, 0)); // 减少固定宽度从100到90
-        rightButtonPanel.setBorder(new EmptyBorder(0, 15, 0, 0)); // 左侧留出间距
-        
-        // 创建一个容器来将按钮定位到下方
-        JPanel buttonContainer = new JPanel(new BorderLayout());
-        buttonContainer.setBackground(new Color(248, 249, 250));
-        buttonContainer.setPreferredSize(new Dimension(90, 100)); // 增加按钮容器高度从80到100，适应更大的文本区域
-        
-        replyButton = createStyledButton("回复", new Color(34, 139, 34)); // 墨绿色
+        replyButton = createStyledButton("回复", new Color(59, 130, 246));
         replyButton.addActionListener(e -> submitReply());
-        replyButton.setPreferredSize(new Dimension(80, 35)); // 设置按钮大小
         
-        // 将按钮放在容器下方
-        buttonContainer.add(Box.createVerticalGlue(), BorderLayout.CENTER); // 上方弹性空间
-        buttonContainer.add(replyButton, BorderLayout.SOUTH); // 按钮在下方
+        replyButtonPanel.add(replyButton);
         
-        rightButtonPanel.add(buttonContainer, BorderLayout.CENTER);
+        replyInputPanel.add(replyTextArea, BorderLayout.CENTER);
+        replyInputPanel.add(replyButtonPanel, BorderLayout.SOUTH);
         
-        // 将左右两部分添加到主面板
-        floatingReplyPanel.add(leftInputPanel, BorderLayout.CENTER);
-        floatingReplyPanel.add(rightButtonPanel, BorderLayout.EAST);
+        replySectionPanel.add(replySectionTitle, BorderLayout.NORTH);
+        replySectionPanel.add(replyScrollPane, BorderLayout.CENTER);
+        replySectionPanel.add(replyInputPanel, BorderLayout.SOUTH);
         
-        floatingReplyCard.add(floatingReplyPanel, BorderLayout.CENTER);
-        
-        // 组装主内容区域 - 卡片式布局
-        mainContentPanel.add(postContentCard);
-        mainContentPanel.add(Box.createVerticalStrut(10)); // 卡片间距，减少间距
-        mainContentPanel.add(commentSectionCard);
-        mainContentPanel.add(Box.createVerticalStrut(10)); // 卡片间距，减少间距
-        mainContentPanel.add(floatingReplyCard);
+        contentPanel.add(threadHeaderPanel, BorderLayout.NORTH);
+        contentPanel.add(threadContentArea, BorderLayout.CENTER);
+        contentPanel.add(replySectionPanel, BorderLayout.SOUTH);
         
         threadDetailPanel.add(navPanel, BorderLayout.NORTH);
-        threadDetailPanel.add(mainContentPanel, BorderLayout.CENTER);
-
-        // ESC 快捷键返回列表
-        threadDetailPanel.registerKeyboardAction(
-            e -> {
-                cardLayout.show(mainPanel, "LIST");
-                // 强制完整重绘，避免列表显示问题
-                SwingUtilities.invokeLater(() -> {
-                    threadListPanel.revalidate();
-                    threadListPanel.repaint();
-                });
-            },
-            javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0),
-            JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT
-        );
-    }
-
-    // 创建带阴影的圆角卡片（用于帖子内容）
-    private JPanel createCardPanel() {
-        return createCardPanel(true);
+        threadDetailPanel.add(contentPanel, BorderLayout.CENTER);
     }
     
-    // 创建不带阴影的圆角卡片（用于评论区和回复区）
-    private JPanel createCardPanelWithoutShadow() {
-        return createCardPanel(false);
-    }
-    
-    private JPanel createCardPanel(boolean withShadow) {
-        JPanel cardPanel = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                
-                int arc = 16; // 增加圆角半径，使界面更时尚
-                
-                if (withShadow) {
-                    int shadowHeight = 10; // 与AppBar相同的阴影高度
-                    
-                    // 绘制阴影 - 使用与AppBar相同的渐变效果
-                    GradientPaint shadowPaint = new GradientPaint(
-                        0, getHeight() - shadowHeight, new Color(0, 0, 0, 50), // 与AppBar相同的透明度
-                        0, getHeight(), new Color(0, 0, 0, 0)
-                    );
-                    g2.setPaint(shadowPaint);
-                    g2.fillRoundRect(0, getHeight() - shadowHeight, getWidth(), shadowHeight, arc, arc);
-                    
-                    // 绘制卡片背景
-                    g2.setColor(Color.WHITE);
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight() - shadowHeight, arc, arc);
-                    
-                    // 绘制边框
-                    g2.setColor(new Color(229, 231, 235));
-                    g2.setStroke(new BasicStroke(1.0f));
-                    g2.drawRoundRect(0, 0, getWidth(), getHeight() - shadowHeight, arc, arc);
-                } else {
-                    // 绘制卡片背景
-                    g2.setColor(Color.WHITE);
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                    
-                    // 绘制边框
-                    g2.setColor(new Color(229, 231, 235));
-                    g2.setStroke(new BasicStroke(1.0f));
-                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
+    private void createThreadDialog() {
+        createThreadDialog = new JDialog((Frame) null, "发布新帖", true);
+        createThreadDialog.setSize(680, 520);
+        createThreadDialog.setLocationRelativeTo(null);
+        createThreadDialog.setResizable(false);
+        
+        JPanel dialogPanel = new JPanel(new BorderLayout());
+        dialogPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
+
+        // 顶部：分类下拉 + 标题输入
+        JPanel topPanel = new JPanel(new BorderLayout(10, 0));
+        topPanel.setBorder(new EmptyBorder(0, 0, 10, 0));
+        String[] categories = {"选择分类", "学术交流", "校园生活", "二手交易", "失物招领", "求助咨询"};
+        categoryComboBox = new JComboBox<>(categories);
+        categoryComboBox.setFont(UIManager.getFont("ComboBox.font").deriveFont(Font.PLAIN, 14f));
+        categoryComboBox.setPreferredSize(new Dimension(160, 35));
+        topPanel.add(categoryComboBox, BorderLayout.WEST);
+
+        threadTitleField = new JTextField();
+        threadTitleField.setFont(UIManager.getFont("TextField.font").deriveFont(Font.PLAIN, 14f));
+        threadTitleField.setBorder(new LineBorder(new Color(229, 231, 235), 1));
+        threadTitleField.setPreferredSize(new Dimension(0, 35));
+        threadTitleField.setToolTipText("请输入标题");
+        topPanel.add(threadTitleField, BorderLayout.CENTER);
+
+        // 中部：正文编辑 + 工具栏 + 计数
+        JPanel centerPanel = new JPanel(new BorderLayout());
+        threadContentField = new JTextArea();
+        threadContentField.setFont(UIManager.getFont("TextArea.font").deriveFont(Font.PLAIN, 14f));
+        threadContentField.setLineWrap(true);
+        threadContentField.setWrapStyleWord(true);
+        threadContentField.setBorder(new LineBorder(new Color(229, 231, 235), 1));
+
+        // 底部工具栏：插入图片/附件 + 计数
+        JPanel toolPanel = new JPanel(new BorderLayout());
+        JPanel leftTools = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 6));
+        insertImageButton = createStyledButton("插入图片", new Color(31, 41, 55));
+        insertAttachmentButton = createStyledButton("插入附件", new Color(31, 41, 55));
+        leftTools.setOpaque(false);
+        // 置为浅色按钮风格
+        insertImageButton.setBackground(new Color(243, 244, 246));
+        insertImageButton.setForeground(new Color(55, 65, 81));
+        insertAttachmentButton.setBackground(new Color(243, 244, 246));
+        insertAttachmentButton.setForeground(new Color(55, 65, 81));
+        leftTools.add(insertImageButton);
+        leftTools.add(insertAttachmentButton);
+
+        contentCounterLabel = new JLabel("0/500");
+        contentCounterLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
+        contentCounterLabel.setForeground(new Color(107, 114, 128));
+        JPanel counterWrap = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 6));
+        counterWrap.setOpaque(false);
+        counterWrap.add(contentCounterLabel);
+
+        toolPanel.add(leftTools, BorderLayout.WEST);
+        toolPanel.add(counterWrap, BorderLayout.EAST);
+
+        // 文本变化监听：限制500并更新计数
+        threadContentField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            private void handle() {
+                String text = threadContentField.getText();
+                if (text.length() > 500) {
+                    threadContentField.setText(text.substring(0, 500));
                 }
-                
-                g2.dispose();
+                contentCounterLabel.setText(threadContentField.getText().length() + "/500");
             }
-        };
-        cardPanel.setBackground(Color.WHITE);
-        cardPanel.setOpaque(true);
-        
-        if (withShadow) {
-            // 设置边框以提供阴影空间
-            cardPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0)); // 底部留阴影空间
-        } else {
-            // 不带阴影的圆角卡片，不需要额外边框
-            cardPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-        }
-        
-        return cardPanel;
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { handle(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { handle(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { handle(); }
+        });
+
+        centerPanel.add(new JScrollPane(threadContentField), BorderLayout.CENTER);
+        centerPanel.add(toolPanel, BorderLayout.SOUTH);
+
+        // 底部按钮：取消/发布帖子
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        cancelThreadButton = createStyledButton("取消", new Color(107, 114, 128));
+        cancelThreadButton.addActionListener(e -> createThreadDialog.setVisible(false));
+        submitThreadButton = createStyledButton("发布帖子", new Color(24, 121, 78));
+        submitThreadButton.addActionListener(e -> submitThread());
+        buttonPanel.add(cancelThreadButton);
+        buttonPanel.add(submitThreadButton);
+
+        dialogPanel.add(topPanel, BorderLayout.NORTH);
+        dialogPanel.add(centerPanel, BorderLayout.CENTER);
+        dialogPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        createThreadDialog.add(dialogPanel);
     }
-
-    private JButton createBackButton(String text) {
-        final Color borderColor = new Color(229, 231, 235);
-        final Color fgDefault = new Color(55, 65, 81);
-        final Color bgDefault = new Color(255, 255, 255);
-        final Color fgHover = new Color(24, 121, 78);
-        final Color bgHover = new Color(223, 245, 232);
-        final Color bgPressed = new Color(210, 238, 224);
-
-        JButton button = new JButton(text) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                int w = getWidth();
-                int h = getHeight();
-                int arc = Math.min(h, 20);
-
-                ButtonModel model = getModel();
-                Color fill = bgDefault;
-                if (model.isPressed()) fill = bgPressed;
-                else if (model.isRollover()) fill = bgHover;
-
-                // 胶囊背景
-                g2.setColor(fill);
-                g2.fillRoundRect(0, 0, w, h, arc, arc);
-
-                // 边框
-                g2.setColor(borderColor);
-                g2.drawRoundRect(0, 0, w - 1, h - 1, arc, arc);
-
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-
-        button.setFont(UIManager.getFont("Button.font").deriveFont(Font.PLAIN, 14f));
-        button.setForeground(fgDefault);
-        button.setBackground(new Color(0, 0, 0, 0));
-        button.setBorderPainted(false);
-        button.setFocusPainted(false);
-        button.setContentAreaFilled(false);
-        button.setOpaque(false);
-        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        button.setPreferredSize(new Dimension(110, 36));
-        button.setBorder(new EmptyBorder(0, 14, 0, 14));
-
-        // 左侧返回箭头（Unicode），与文字留空隙
-        button.setText("←  " + text);
-
-        // 悬停前景色
-        button.addChangeListener(e -> button.setForeground(button.getModel().isRollover() ? fgHover : fgDefault));
-
-        return button;
-    }
-    
     
     private JButton createStyledButton(String text, Color color) {
         JButton button = new JButton(text);
@@ -1398,22 +779,13 @@ public class StudentForumModule implements IModuleView {
         button.setCursor(new Cursor(Cursor.HAND_CURSOR));
         button.setPreferredSize(new Dimension(80, 35));
         
-        // 添加悬停和点击效果
+        // 添加悬停效果
         button.addMouseListener(new java.awt.event.MouseAdapter() {
             public void mouseEntered(java.awt.event.MouseEvent evt) {
-                // 悬浮时颜色加深
                 button.setBackground(color.darker());
             }
             public void mouseExited(java.awt.event.MouseEvent evt) {
                 button.setBackground(color);
-            }
-            public void mousePressed(java.awt.event.MouseEvent evt) {
-                // 点击时颜色进一步加深
-                button.setBackground(color.darker().darker());
-            }
-            public void mouseReleased(java.awt.event.MouseEvent evt) {
-                // 释放时恢复悬浮状态
-                button.setBackground(color.darker());
             }
         });
         
@@ -1488,12 +860,6 @@ public class StudentForumModule implements IModuleView {
         button.setContentAreaFilled(false);
         button.setOpaque(false);
         button.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        
-        // 添加发帖按钮点击事件
-        button.addActionListener(e -> {
-            showCreateThreadDialog();
-        });
-        
         return button;
     }
     
@@ -1548,336 +914,295 @@ public class StudentForumModule implements IModuleView {
         // 应用当前选中样式
         styleCategoryButton(selected, true);
         selectedCategoryButton = selected;
-        // 可按需触发重新加载/排序
+        // 可按需触发重新加载/排序，这里仅刷新界面
+        threadListPanel.revalidate();
+        threadListPanel.repaint();
+    }
+    
+    private void initMockData() {
+        threads = new ArrayList<>();
+        replies = new ArrayList<>();
+        
+        // 创建模拟帖子数据
+        ThreadVO thread1 = new ThreadVO();
+        thread1.setThreadId(1);
+        thread1.setTitle("欢迎来到校园论坛！");
+        thread1.setContent("欢迎大家使用校园论坛系统！这里可以分享学习心得、讨论课程内容、交流校园生活。希望大家能够文明发言，共同营造良好的讨论氛围。");
+        thread1.setAuthorName("系统管理员");
+        thread1.setAuthorLoginId("admin");
+        thread1.setCreatedTime(new Timestamp(System.currentTimeMillis() - 86400000));
+        thread1.setReplyCount(3);
+        threads.add(thread1);
+        
+        ThreadVO thread2 = new ThreadVO();
+        thread2.setThreadId(2);
+        thread2.setTitle("Java编程学习心得分享");
+        thread2.setContent("最近在学习Java编程，发现了一些不错的学习方法和资源。想和大家分享一下我的学习心得，希望对初学者有所帮助。\n\n1. 基础语法要扎实\n2. 多动手实践\n3. 阅读优秀的开源项目\n4. 参与社区讨论");
+        thread2.setAuthorName("张三");
+        thread2.setAuthorLoginId("2021001");
+        thread2.setCreatedTime(new Timestamp(System.currentTimeMillis() - 172800000));
+        thread2.setReplyCount(5);
+        threads.add(thread2);
+        
+        ThreadVO thread3 = new ThreadVO();
+        thread3.setThreadId(3);
+        thread3.setTitle("校园食堂新菜品推荐");
+        thread3.setContent("今天在食堂发现了几道新菜品，味道很不错！推荐给大家：\n\n1. 红烧肉 - 肥瘦相间，入口即化\n2. 宫保鸡丁 - 麻辣鲜香，很下饭\n3. 糖醋里脊 - 酸甜可口，老少皆宜\n\n大家还有什么好吃的推荐吗？");
+        thread3.setAuthorName("李四");
+        thread3.setAuthorLoginId("2021002");
+        thread3.setCreatedTime(new Timestamp(System.currentTimeMillis() - 259200000));
+        thread3.setReplyCount(8);
+        threads.add(thread3);
+        
+        ThreadVO thread4 = new ThreadVO();
+        thread4.setThreadId(4);
+        thread4.setTitle("期末考试复习计划");
+        thread4.setContent("期末考试快到了，想和大家讨论一下复习计划。我准备按照以下步骤进行：\n\n1. 整理各科重点知识点\n2. 制定每日复习计划\n3. 多做练习题\n4. 与同学互相讨论\n\n大家有什么好的复习方法吗？");
+        thread4.setAuthorName("王五");
+        thread4.setAuthorLoginId("2021003");
+        thread4.setCreatedTime(new Timestamp(System.currentTimeMillis() - 345600000));
+        thread4.setReplyCount(12);
+        threads.add(thread4);
+        
+        ThreadVO thread5 = new ThreadVO();
+        thread5.setThreadId(5);
+        thread5.setTitle("校园社团活动招募");
+        thread5.setContent("我们计算机社团正在招募新成员！如果你对编程、算法、人工智能等感兴趣，欢迎加入我们。\n\n社团活动包括：\n- 每周技术分享会\n- 编程竞赛训练\n- 项目开发实践\n- 企业参观交流\n\n有意向的同学请联系我！");
+        thread5.setAuthorName("赵六");
+        thread5.setAuthorLoginId("2021004");
+        thread5.setCreatedTime(new Timestamp(System.currentTimeMillis() - 432000000));
+        thread5.setReplyCount(6);
+        threads.add(thread5);
+        
+        // 增加更多示例帖子以测试滚动效果
+        ThreadVO thread6 = new ThreadVO();
+        thread6.setThreadId(6);
+        thread6.setTitle("数据结构与算法学习心得");
+        thread6.setContent("最近在学习数据结构与算法，发现了一些重要的学习要点：\n\n1. 理解基本概念比死记硬背更重要\n2. 多画图理解算法流程\n3. 动手实现每个数据结构\n4. 多做练习题巩固知识\n\n大家有什么好的学习资源推荐吗？");
+        thread6.setAuthorName("钱七");
+        thread6.setAuthorLoginId("2021008");
+        thread6.setCreatedTime(new Timestamp(System.currentTimeMillis() - 518400000));
+        thread6.setReplyCount(9);
+        threads.add(thread6);
+        
+        ThreadVO thread7 = new ThreadVO();
+        thread7.setThreadId(7);
+        thread7.setTitle("校园图书馆使用指南");
+        thread7.setContent("图书馆是学习的好地方，这里分享一些使用技巧：\n\n1. 提前预约座位，避免排队\n2. 利用电子资源，查找学术论文\n3. 参加图书馆举办的讲座活动\n4. 合理利用自习室和讨论室\n\n希望大家都能充分利用图书馆资源！");
+        thread7.setAuthorName("孙八");
+        thread7.setAuthorLoginId("2021009");
+        thread7.setCreatedTime(new Timestamp(System.currentTimeMillis() - 604800000));
+        thread7.setReplyCount(4);
+        threads.add(thread7);
+        
+        ThreadVO thread8 = new ThreadVO();
+        thread8.setThreadId(8);
+        thread8.setTitle("Python爬虫技术分享");
+        thread8.setContent("最近在学习Python爬虫技术，发现了很多有趣的应用：\n\n1. 网页数据抓取\n2. 自动化数据收集\n3. 网站监控\n4. 价格比较工具\n\n需要注意的是要遵守网站的robots.txt规则，合理使用爬虫技术。");
+        thread8.setAuthorName("周九");
+        thread8.setAuthorLoginId("2021010");
+        thread8.setCreatedTime(new Timestamp(System.currentTimeMillis() - 691200000));
+        thread8.setReplyCount(7);
+        threads.add(thread8);
+        
+        ThreadVO thread9 = new ThreadVO();
+        thread9.setThreadId(9);
+        thread9.setTitle("校园生活小贴士");
+        thread9.setContent("分享一些校园生活的小贴士：\n\n1. 合理安排作息时间\n2. 多参加社团活动\n3. 与室友和谐相处\n4. 注意饮食健康\n5. 定期锻炼身体\n\n希望大家都能度过美好的大学生活！");
+        thread9.setAuthorName("吴十");
+        thread9.setAuthorLoginId("2021011");
+        thread9.setCreatedTime(new Timestamp(System.currentTimeMillis() - 777600000));
+        thread9.setReplyCount(11);
+        threads.add(thread9);
+        
+        ThreadVO thread10 = new ThreadVO();
+        thread10.setThreadId(10);
+        thread10.setTitle("机器学习入门教程");
+        thread10.setContent("机器学习是当前热门的技术领域，入门建议：\n\n1. 先学好数学基础（线性代数、概率论）\n2. 学习Python编程\n3. 了解常用的机器学习库（scikit-learn、tensorflow）\n4. 多做实际项目\n\n有同学一起学习吗？");
+        thread10.setAuthorName("郑十一");
+        thread10.setAuthorLoginId("2021012");
+        thread10.setCreatedTime(new Timestamp(System.currentTimeMillis() - 864000000));
+        thread10.setReplyCount(15);
+        threads.add(thread10);
+        
+        ThreadVO thread11 = new ThreadVO();
+        thread11.setThreadId(11);
+        thread11.setTitle("数据库设计最佳实践");
+        thread11.setContent("数据库设计是软件开发的重要环节：\n\n1. 合理设计表结构\n2. 选择合适的字段类型\n3. 建立适当的索引\n4. 考虑数据完整性约束\n5. 优化查询性能\n\n大家有什么数据库设计经验可以分享吗？");
+        thread11.setAuthorName("王十二");
+        thread11.setAuthorLoginId("2021013");
+        thread11.setCreatedTime(new Timestamp(System.currentTimeMillis() - 950400000));
+        thread11.setReplyCount(6);
+        threads.add(thread11);
+        
+        ThreadVO thread12 = new ThreadVO();
+        thread12.setThreadId(12);
+        thread12.setTitle("前端开发技术栈推荐");
+        thread12.setContent("前端开发技术更新很快，推荐一些主流技术：\n\n1. HTML5 + CSS3 基础\n2. JavaScript ES6+\n3. React/Vue.js 框架\n4. Webpack 打包工具\n5. Node.js 后端开发\n\n前端开发需要不断学习新技术，保持技术敏感度。");
+        thread12.setAuthorName("李十三");
+        thread12.setAuthorLoginId("2021014");
+        thread12.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1036800000));
+        thread12.setReplyCount(8);
+        threads.add(thread12);
+        
+        ThreadVO thread13 = new ThreadVO();
+        thread13.setThreadId(13);
+        thread13.setTitle("校园网络安全意识");
+        thread13.setContent("网络安全很重要，分享一些安全知识：\n\n1. 设置强密码\n2. 不点击可疑链接\n3. 定期更新软件\n4. 使用VPN保护隐私\n5. 备份重要数据\n\n希望大家都能提高网络安全意识！");
+        thread13.setAuthorName("张十四");
+        thread13.setAuthorLoginId("2021015");
+        thread13.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1123200000));
+        thread13.setReplyCount(3);
+        threads.add(thread13);
+        
+        ThreadVO thread14 = new ThreadVO();
+        thread14.setThreadId(14);
+        thread14.setTitle("云计算技术发展趋势");
+        thread14.setContent("云计算是未来IT发展的重要方向：\n\n1. 公有云、私有云、混合云\n2. 容器化技术（Docker、Kubernetes）\n3. 微服务架构\n4. DevOps 实践\n5. 边缘计算\n\n云计算技术正在改变传统的IT架构模式。");
+        thread14.setAuthorName("刘十五");
+        thread14.setAuthorLoginId("2021016");
+        thread14.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1209600000));
+        thread14.setReplyCount(5);
+        threads.add(thread14);
+        
+        ThreadVO thread15 = new ThreadVO();
+        thread15.setThreadId(15);
+        thread15.setTitle("移动应用开发经验");
+        thread15.setContent("移动应用开发需要注意的要点：\n\n1. 用户体验设计\n2. 性能优化\n3. 跨平台开发\n4. 安全考虑\n5. 版本管理\n\n移动应用市场竞争激烈，需要不断创新。");
+        thread15.setAuthorName("陈十六");
+        thread15.setAuthorLoginId("2021017");
+        thread15.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1296000000));
+        thread15.setReplyCount(7);
+        threads.add(thread15);
+        
+        ThreadVO thread16 = new ThreadVO();
+        thread16.setThreadId(16);
+        thread16.setTitle("人工智能伦理思考");
+        thread16.setContent("AI技术发展迅速，但也要考虑伦理问题：\n\n1. 算法偏见\n2. 隐私保护\n3. 就业影响\n4. 决策透明度\n5. 责任归属\n\n技术发展需要与伦理考量并重。");
+        thread16.setAuthorName("杨十七");
+        thread16.setAuthorLoginId("2021018");
+        thread16.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1382400000));
+        thread16.setReplyCount(12);
+        threads.add(thread16);
+        
+        ThreadVO thread17 = new ThreadVO();
+        thread17.setThreadId(17);
+        thread17.setTitle("开源软件贡献指南");
+        thread17.setContent("参与开源项目是提升技术的好方法：\n\n1. 选择合适的项目\n2. 阅读项目文档\n3. 从小问题开始\n4. 遵循代码规范\n5. 积极参与讨论\n\n开源社区需要大家的参与和贡献！");
+        thread17.setAuthorName("黄十八");
+        thread17.setAuthorLoginId("2021019");
+        thread17.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1468800000));
+        thread17.setReplyCount(9);
+        threads.add(thread17);
+        
+        ThreadVO thread18 = new ThreadVO();
+        thread18.setThreadId(18);
+        thread18.setTitle("软件测试最佳实践");
+        thread18.setContent("软件测试是保证质量的重要环节：\n\n1. 单元测试\n2. 集成测试\n3. 系统测试\n4. 自动化测试\n5. 性能测试\n\n好的测试策略能大大提高软件质量。");
+        thread18.setAuthorName("赵十九");
+        thread18.setAuthorLoginId("2021020");
+        thread18.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1555200000));
+        thread18.setReplyCount(6);
+        threads.add(thread18);
+        
+        ThreadVO thread19 = new ThreadVO();
+        thread19.setThreadId(19);
+        thread19.setTitle("区块链技术应用前景");
+        thread19.setContent("区块链技术有广阔的应用前景：\n\n1. 数字货币\n2. 供应链管理\n3. 身份认证\n4. 智能合约\n5. 去中心化应用\n\n区块链技术正在改变传统的信任机制。");
+        thread19.setAuthorName("钱二十");
+        thread19.setAuthorLoginId("2021021");
+        thread19.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1641600000));
+        thread19.setReplyCount(4);
+        threads.add(thread19);
+        
+        ThreadVO thread20 = new ThreadVO();
+        thread20.setThreadId(20);
+        thread20.setTitle("职业规划与技能提升");
+        thread20.setContent("IT行业职业规划建议：\n\n1. 明确职业目标\n2. 持续学习新技术\n3. 积累项目经验\n4. 建立人脉网络\n5. 关注行业趋势\n\n职业发展需要长期规划和持续努力。");
+        thread20.setAuthorName("孙二一");
+        thread20.setAuthorLoginId("2021022");
+        thread20.setCreatedTime(new Timestamp(System.currentTimeMillis() - 1728000000));
+        thread20.setReplyCount(13);
+        threads.add(thread20);
+        
+        // 创建模拟回复数据
+        PostVO reply1 = new PostVO();
+        reply1.setPostId(1);
+        reply1.setThreadId(1);
+        reply1.setContent("感谢管理员！期待在这里和大家交流学习。");
+        reply1.setAuthorName("学生A");
+        reply1.setAuthorLoginId("2021005");
+        reply1.setCreatedTime(new Timestamp(System.currentTimeMillis() - 82800000));
+        replies.add(reply1);
+        
+        PostVO reply2 = new PostVO();
+        reply2.setPostId(2);
+        reply2.setThreadId(1);
+        reply2.setContent("论坛界面很漂亮，使用体验很好！");
+        reply2.setAuthorName("学生B");
+        reply2.setAuthorLoginId("2021006");
+        reply2.setCreatedTime(new Timestamp(System.currentTimeMillis() - 79200000));
+        replies.add(reply2);
+        
+        PostVO reply3 = new PostVO();
+        reply3.setPostId(3);
+        reply3.setThreadId(2);
+        reply3.setContent("感谢分享！我也是Java初学者，这些建议很有用。");
+        reply3.setAuthorName("学生C");
+        reply3.setAuthorLoginId("2021007");
+        reply3.setCreatedTime(new Timestamp(System.currentTimeMillis() - 165600000));
+        replies.add(reply3);
+        
         refreshThreadList();
     }
     
-    private void initMockData() { }
-    
     private void refreshThreadList() {
         JPanel threadItemsPanel = (JPanel) threadScrollPane.getViewport().getView();
-        if (threadItemsPanel == null) {
-            System.out.println("[Forum][Client] 刷新列表时发现视图为空(view==null)");
-            return;
-        }
-        System.out.println("[Forum][Client] 清空帖子列表并准备渲染，当前数据条数=" + (threads != null ? threads.size() : 0));
-        System.out.println("[DEBUG] ========== 客户端开始刷新帖子列表 ==========");
-        
-        // 调试输出：检查接收到的所有帖子数据
-        if (threads != null) {
-            System.out.println("[DEBUG] 接收到的帖子总数: " + threads.size());
-            for (ThreadVO thread : threads) {
-                if (thread != null) {
-                    System.out.println("[DEBUG] 帖子数据 - ID=" + thread.getThreadId() + 
-                                     ", 标题=" + thread.getTitle() + 
-                                     ", 作者=" + thread.getAuthorName() + 
-                                     ", 是否公告=" + thread.getIsAnnouncement() + 
-                                      ", 回复数=" + thread.getReplyCount() + 
-                                      ", 分区ID=" + thread.getSectionId());
-                }
-            }
-        }
-        
         threadItemsPanel.removeAll();
-        // 每次刷新先按当前模式排序
-        sortThreads();
         
-        int shownCount = 0;
         for (ThreadVO thread : threads) {
-            // 若存在分区ID筛选，则仅显示匹配分区ID的帖子
-            if (currentSectionIdFilter != null) {
-                Integer sid = thread != null ? thread.getSectionId() : null;
-                if (sid == null || !currentSectionIdFilter.equals(sid)) {
-                    System.out.println("[DEBUG] 帖子ID=" + (thread != null ? thread.getThreadId() : "null") + " 被分区筛选过滤掉");
-                    continue;
-                }
-            }
-            
-            // 精华模式筛选：只显示精华帖子
-            if (currentSortMode == SortMode.ESSENCE) {
-                boolean isEssence = thread.getIsEssence() != null && thread.getIsEssence();
-                System.out.println("[DEBUG][精华功能] 精华模式筛选检查: 帖子ID=" + thread.getThreadId() + 
-                                 ", 标题=" + thread.getTitle() + ", isEssence=" + isEssence);
-                if (!isEssence) {
-                    System.out.println("[DEBUG][精华功能] 非精华帖子被过滤掉，帖子ID=" + thread.getThreadId());
-                    continue;
-                }
-                System.out.println("[DEBUG][精华功能] 精华帖子通过筛选，帖子ID=" + thread.getThreadId());
-            }
-            
-            System.out.println("[DEBUG] 准备创建帖子项 - ID=" + thread.getThreadId() + 
-                             ", 标题=" + thread.getTitle() + 
-                             ", 是否公告=" + thread.getIsAnnouncement());
-            
             JPanel threadItem = createThreadItem(thread);
             threadItemsPanel.add(threadItem);
             threadItemsPanel.add(Box.createVerticalStrut(12));
-            shownCount++;
         }
-        // 立即刷新布局，避免等待后延迟渲染
+        
         threadItemsPanel.revalidate();
         threadItemsPanel.repaint();
-        System.out.println("[Forum][Client] 列表渲染完成，显示条数=" + shownCount);
-        
-        // 同步每个子项宽度为可用区域宽度，避免任何情况下右侧出现空白
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override public void run() { syncThreadItemsWidth(); }
-        });
-        // 同步刷新公告区域
-        refreshAnnouncements();
-    }
-
-    /**
-     * 将帖子列表所有子项的首选/最大宽度同步为视口可用宽度，确保横向铺满。
-     */
-    private void syncThreadItemsWidth() {
-        if (threadScrollPane == null) return;
-        java.awt.Component view = threadScrollPane.getViewport().getView();
-        if (!(view instanceof JPanel)) return;
-        JPanel threadItemsPanel = (JPanel) view;
-        int availableWidth = Math.max(0, threadScrollPane.getViewport().getWidth());
-        for (Component comp : threadItemsPanel.getComponents()) {
-            if (comp instanceof JPanel) {
-                Dimension pref = comp.getPreferredSize();
-                int prefHeight = pref != null ? pref.height : comp.getHeight();
-                ((JPanel) comp).setMaximumSize(new Dimension(Integer.MAX_VALUE, prefHeight));
-                ((JPanel) comp).setPreferredSize(new Dimension(availableWidth, prefHeight));
-            }
-        }
-        threadItemsPanel.revalidate();
-        threadItemsPanel.repaint();
-    }
-
-    private void fetchThreadsFromServer() {
-        
-        client.net.ServerConnection conn = this.connectionRef;
-        // 并发/重复点击保护：若上一次请求仍在进行，直接忽略本次触发
-        if (isFetchingThreads) {
-            System.out.println("[Forum][Client] 忽略刷新：上一次请求仍在进行");
-            return;
-        }
-        if (conn == null || !conn.isConnected()) {
-            System.out.println("[Forum][Client] 刷新失败：未连接到服务器或连接对象为空");
-            try {
-                if (refreshButton != null) {
-                    refreshButton.setEnabled(true);
-                    refreshButton.setToolTipText("刷新");
-                }
-            } catch (Exception ignore) {}
-            return;
-        }
-        
-        // 刷新期间禁用按钮，避免重复请求
-        try {
-            if (refreshButton != null) {
-                refreshButton.setEnabled(false);
-                refreshButton.setToolTipText("正在刷新...");
-            }
-        } catch (Exception ignore) {}
-
-        // 标记为进行中，避免重复发送
-        isFetchingThreads = true;
-        System.out.println("[Forum][Client] 发送获取帖子请求: GET_ALL_THREADS_REQUEST");
-
-        // 超时保护：若 8 秒内未收到响应，自动恢复按钮状态，避免一直禁用
-        final javax.swing.Timer timeoutTimer = new javax.swing.Timer(8000, new java.awt.event.ActionListener() {
-            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
-                try {
-                    if (refreshButton != null) {
-                        refreshButton.setEnabled(true);
-                        refreshButton.setToolTipText("刷新");
-                    }
-                } catch (Exception ignore) {}
-                // 超时后重置进行中标志，避免后续刷新被忽略
-                isFetchingThreads = false;
-            }
-        });
-        timeoutTimer.setRepeats(false);
-        timeoutTimer.start();
-
-        // 失败回调监听
-        // 为避免监听器累积，先移除旧监听器（若存在）
-        try { conn.removeMessageListener(common.protocol.MessageType.GET_ALL_THREADS_FAIL); } catch (Exception ignore) {}
-        try { conn.removeMessageListener(common.protocol.MessageType.GET_ALL_THREADS_SUCCESS); } catch (Exception ignore) {}
-        System.out.println("[Forum][Client] 注册响应监听器: SUCCESS/FAIL");
-        conn.setMessageListener(common.protocol.MessageType.GET_ALL_THREADS_FAIL, new client.net.ServerConnection.MessageListener() {
-            @Override public void onMessageReceived(common.protocol.Message message) {
-                try { if (timeoutTimer.isRunning()) timeoutTimer.stop(); } catch (Exception ignore) {}
-                isFetchingThreads = false;
-                System.out.println("[Forum][Client] 收到失败响应: GET_ALL_THREADS_FAIL, status=" + message.getStatusCode() + ", msg=" + message.getMessage());
-                SwingUtilities.invokeLater(new Runnable() {
-                    @Override public void run() {
-                        try {
-                            if (refreshButton != null) {
-                                refreshButton.setEnabled(true);
-                                refreshButton.setToolTipText("刷新");
-                            }
-                        } catch (Exception ignore) {}
-                    }
-                });
-                try { conn.removeMessageListener(common.protocol.MessageType.GET_ALL_THREADS_FAIL); } catch (Exception ignore) {}
-            }
-        });
-
-        conn.setMessageListener(common.protocol.MessageType.GET_ALL_THREADS_SUCCESS, new client.net.ServerConnection.MessageListener() {
-            @Override public void onMessageReceived(common.protocol.Message message) {
-                try {
-                    @SuppressWarnings("unchecked")
-                    java.util.List<common.vo.ThreadVO> list = (java.util.List<common.vo.ThreadVO>) message.getData();
-                    System.out.println("[Forum][Client] 收到成功响应: GET_ALL_THREADS_SUCCESS, 条数=" + (list != null ? list.size() : -1));
-                    System.out.println("[DEBUG] ========== 客户端接收到服务器数据 ==========");
-                    
-                    // 详细调试输出接收到的数据
-                    if (list != null) {
-                        System.out.println("[DEBUG] 接收到的ThreadVO列表大小: " + list.size());
-                        for (ThreadVO vo : list) {
-                            System.out.println("[DEBUG] 接收数据 - ID=" + vo.getThreadId() + 
-                                             ", 标题=" + vo.getTitle() + 
-                                             ", 作者=" + vo.getAuthorName() + 
-                                             ", 是否公告=" + vo.getIsAnnouncement() + 
-                                             ", 回复数=" + vo.getReplyCount() + 
-                                             ", 分区ID=" + vo.getSectionId());
-                        }
-                    } else {
-                        System.out.println("[DEBUG] 接收到的数据为null");
-                    }
-                    
-                    SwingUtilities.invokeLater(new Runnable() {
-                        @Override public void run() {
-                            try { if (timeoutTimer.isRunning()) timeoutTimer.stop(); } catch (Exception ignore) {}
-                            isFetchingThreads = false;
-                            threads.clear();
-                            if (list != null) threads.addAll(list);
-                            System.out.println("[DEBUG] 数据已添加到本地threads列表，当前大小: " + threads.size());
-                            refreshThreadList();
-                            // 同步刷新热门板块
-                            try { refreshHotSections(); } catch (Exception ignore) {}
-                            // 回到列表顶部
-                            try {
-                                JScrollBar bar = threadScrollPane != null ? threadScrollPane.getVerticalScrollBar() : null;
-                                if (bar != null) bar.setValue(0);
-                            } catch (Exception ignore) {}
-                            // 恢复按钮
-                            try {
-                                if (refreshButton != null) {
-                                    refreshButton.setEnabled(true);
-                                    refreshButton.setToolTipText("刷新");
-                                }
-                            } catch (Exception ignore) {}
-                            System.out.println("[Forum][Client] 刷新流程完成");
-                        }
-                    });
-                } catch (Exception e) {
-                    System.out.println("[Forum][Client] 处理成功响应异常: " + e.getMessage());
-                    try {
-                        try { if (timeoutTimer.isRunning()) timeoutTimer.stop(); } catch (Exception ignore) {}
-                        isFetchingThreads = false;
-                        if (refreshButton != null) {
-                            refreshButton.setEnabled(true);
-                            refreshButton.setToolTipText("刷新");
-                        }
-                    } catch (Exception ignore) {}
-                }
-                // 移除本次监听器，避免占用
-                try { conn.removeMessageListener(common.protocol.MessageType.GET_ALL_THREADS_SUCCESS); } catch (Exception ignore) {}
-            }
-        });
-        
-        boolean sent = conn.sendMessage(new common.protocol.Message(common.protocol.MessageType.GET_ALL_THREADS_REQUEST));
-        System.out.println("[Forum][Client] 请求发送结果 sent=" + sent);
-        if (!sent) {
-            try {
-                try { if (timeoutTimer.isRunning()) timeoutTimer.stop(); } catch (Exception ignore) {}
-                isFetchingThreads = false;
-                if (refreshButton != null) {
-                    refreshButton.setEnabled(true);
-                    refreshButton.setToolTipText("刷新");
-                }
-            } catch (Exception ignore) {}
-            System.out.println("[Forum][Client] 发送失败，已恢复按钮状态");
-        }
     }
     
     private JPanel createThreadItem(ThreadVO thread) {
-        System.out.println("[DEBUG] ========== 开始创建帖子项 ==========");
-        System.out.println("[DEBUG] 帖子ID=" + thread.getThreadId() + 
-                         ", 标题=" + thread.getTitle() + 
-                         ", 作者=" + thread.getAuthorName() + 
-                         ", 是否公告=" + thread.getIsAnnouncement() + 
-                          ", 回复数=" + thread.getReplyCount());
-        
-        JPanel itemPanel = new JPanel(new BorderLayout()) {
-            @Override
-            public Dimension getMaximumSize() {
-                Dimension pref = getPreferredSize();
-                // 横向尽可能填满，纵向不超过首选高度，避免被 BoxLayout 垂直拉伸
-                return new Dimension(Integer.MAX_VALUE, pref != null ? pref.height : Integer.MAX_VALUE);
-            }
-        };
+        JPanel itemPanel = new JPanel(new BorderLayout());
         itemPanel.setOpaque(false);
-        // 增加边距以显示阴影效果
-        itemPanel.setBorder(new EmptyBorder(12, 16, 12, 16));
+        itemPanel.setBorder(new EmptyBorder(8, 12, 8, 12));
         itemPanel.setCursor(new Cursor(Cursor.HAND_CURSOR));
         // 让卡片在滚动视图中横向占满：宽度填满，高度由内容自适应
+        itemPanel.setMinimumSize(null);
+        itemPanel.setPreferredSize(null);
+        itemPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         itemPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        // 设置组件名称以便后续识别
-        itemPanel.setName("thread_item_" + thread.getThreadId());
 
         final Color defaultBg = new Color(255, 255, 255);
         // 悬浮时背景：浅灰色
         final Color hoverBg = new Color(243, 244, 246);
         final Color[] currentBg = new Color[]{defaultBg};
-        // 悬浮阴影标志
-        final boolean[] hoverActive = new boolean[]{false};
 
         JPanel cardPanel = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                int arc = 16;
-                
-                // 悬浮时绘制增强的多层阴影效果
-                if (hoverActive[0]) {
-                    // 绘制多层阴影，从外到内逐渐变淡
-                    int shadowLayers = 15;
-                    int maxOffset = 8;
-                    for (int i = shadowLayers; i >= 1; i--) {
-                        float alpha = 0.12f * (float)i / shadowLayers;
-                        int offset = (int)(maxOffset * (float)i / shadowLayers);
-                        g2.setColor(new Color(0f, 0f, 0f, Math.min(0.8f, alpha)));
-                        g2.fillRoundRect(offset, offset, 
-                                       Math.max(0, getWidth() - offset * 2), 
-                                       Math.max(0, getHeight() - offset * 2), 
-                                       arc, arc);
-                    }
-                }
-                
-                // 绘制主体背景
                 g2.setColor(currentBg[0]);
+                int arc = 12;
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                
-                // 边框已移除
-                
                 g2.dispose();
-            }
-            
-            @Override
-            public boolean isOpaque() {
-                return false; // 确保透明背景，让阴影可见
-            }
-            
-            @Override
-            public Dimension getMaximumSize() {
-                Dimension pref = getPreferredSize();
-                // 横向尽可能填满，纵向不超过首选高度，避免在筛选后占满整个可视高度
-                return new Dimension(Integer.MAX_VALUE, pref != null ? pref.height : Integer.MAX_VALUE);
             }
         };
         cardPanel.setOpaque(false);
         cardPanel.setBorder(new EmptyBorder(16, 18, 16, 18));
         // 内部内容由布局计算高度，横向可拉伸
+        cardPanel.setMinimumSize(null);
+        cardPanel.setPreferredSize(null);
+        cardPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         cardPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         
@@ -1892,235 +1217,138 @@ public class StudentForumModule implements IModuleView {
         westWrap.setBorder(new EmptyBorder(0, 0, 0, 12));
         westWrap.add(avatar, BorderLayout.NORTH);
 
-        // 第一行（右侧）：姓名（较大） + 发布时间（较小浅灰）上下结构
+        // 顶部：姓名/院系在左，标签紧随其右侧
+        JPanel header = new JPanel(new BorderLayout());
+        header.setOpaque(false);
+        JPanel nameDept = new JPanel();
+        nameDept.setOpaque(false);
+        nameDept.setLayout(new BoxLayout(nameDept, BoxLayout.Y_AXIS));
         final JLabel nameLabel = new JLabel(thread.getAuthorName());
-        nameLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 16f));
-        nameLabel.setForeground(new Color(55, 65, 81));
-        JLabel timeMeta = new JLabel(formatTime(thread.getCreatedTime()));
-        timeMeta.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
-        timeMeta.setForeground(new Color(156, 163, 175));
+        // 姓名：加粗黑体，字号略大
+        nameLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD, 16f));
+        nameLabel.setForeground(new Color(31, 41, 55));
+        JLabel deptLabel = new JLabel("计算机科学与技术");
+        // 专业：非常浅的较小字体
+        deptLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 11f));
+        deptLabel.setForeground(new Color(156, 163, 175));
+        nameDept.add(nameLabel);
+        nameDept.add(deptLabel);
 
-        JPanel nameTimeStack = new JPanel();
-        nameTimeStack.setLayout(new BoxLayout(nameTimeStack, BoxLayout.Y_AXIS));
-        nameTimeStack.setOpaque(false);
-        nameTimeStack.setAlignmentX(Component.LEFT_ALIGNMENT);
-        nameLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        timeMeta.setAlignmentX(Component.LEFT_ALIGNMENT);
-        nameTimeStack.add(nameLabel);
-        nameTimeStack.add(Box.createVerticalStrut(2));
-        nameTimeStack.add(timeMeta);
+        final JLabel tag = createRoundedAnimatedTag(getThreadCategory(thread), 999, 280);
 
-        // 第一行右端添加分类标签，悬浮整卡片时也变墨绿色
-        JLabel categoryTag = createRoundedAnimatedTag(getThreadSectionName(thread), 999, 180);
-        
-        // 检查是否为精华帖子，如果是则添加精华图标
-        JPanel rightSection = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        rightSection.setOpaque(false);
-        
-        boolean isEssencePost = thread.getIsEssence() != null && thread.getIsEssence();
-        System.out.println("[DEBUG][精华功能] 帖子ID=" + thread.getThreadId() + 
-                         ", 标题=" + thread.getTitle() + 
-                         ", getIsEssence()=" + thread.getIsEssence() + 
-                         ", isEssencePost=" + isEssencePost);
-        
-        if (isEssencePost) {
-            System.out.println("[DEBUG][精华功能] *** 精华帖子确认 *** 正在为精华帖子添加图标，帖子ID=" + thread.getThreadId());
-            
-            // 检查图标文件是否存在
-            java.io.File iconFile = new java.io.File("resources/icons/精华帖子.png");
-            System.out.println("[DEBUG][精华功能] 检查图标文件: " + iconFile.getAbsolutePath() + ", 存在=" + iconFile.exists());
-            
-            // 尝试多个可能的路径
-            String[] iconPaths = {
-                "icons/精华帖子.png",
-                "resources/icons/精华帖子.png",
-                "/icons/精华帖子.png",
-                "/resources/icons/精华帖子.png"
-            };
-            
-            ImageIcon essenceIcon = null;
-            String successPath = null;
-            
-            for (String path : iconPaths) {
-                System.out.println("[DEBUG][精华功能] 尝试加载图标路径: " + path);
-                essenceIcon = loadScaledIcon(path, 20, 20);
-                if (essenceIcon != null) {
-                    successPath = path;
-                    System.out.println("[DEBUG][精华功能] 图标加载成功，路径: " + path);
-                    break;
+        // 行容器：左对齐紧凑排列，避免标签跑到整行最右
+        JPanel nameAndTagRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        nameAndTagRow.setOpaque(false);
+        nameAndTagRow.add(nameDept);
+        nameAndTagRow.add(tag);
+
+        header.add(nameAndTagRow, BorderLayout.WEST);
+
+        // 将帖子卡片的悬浮与标签颜色联动：平时浅绿，悬浮墨绿
+        final Color tagBaseBg = new Color(223, 245, 232);
+        final Color tagBaseFg = new Color(24, 121, 78);
+        final Color tagHoverBg = new Color(24, 121, 78);
+        final Color tagHoverFg = Color.WHITE;
+        java.awt.event.MouseAdapter tagSync = new java.awt.event.MouseAdapter() {
+            @Override public void mouseEntered(java.awt.event.MouseEvent e) {
+                try {
+                    java.lang.reflect.Method m = tag.getClass().getDeclaredMethod("startAnim", Color.class, Color.class);
+                    m.setAccessible(true);
+                    m.invoke(tag, tagHoverBg, tagHoverFg);
+                } catch (Exception ignored) {
+                    tag.setBackground(tagHoverBg);
+                    tag.setForeground(tagHoverFg);
+                    tag.repaint();
                 }
             }
-            
-            if (essenceIcon != null) {
-                System.out.println("[DEBUG][精华功能] *** 精华图标加载成功 *** 使用路径: " + successPath + ", 添加到界面");
-                JLabel essenceLabel = new JLabel(essenceIcon);
-                essenceLabel.setToolTipText("精华帖子");
-                essenceLabel.setBorder(new EmptyBorder(0, 5, 0, 0)); // 添加一些间距
-                rightSection.add(essenceLabel, 0); // 添加到最前面
-                System.out.println("[DEBUG][精华功能] 精华图标已添加到 rightSection");
-            } else {
-                System.out.println("[ERROR][精华功能] *** 精华图标加载失败 *** 所有路径都尝试过了");
-                // 作为备用，使用文字标签
-                JLabel essenceTextLabel = new JLabel("★"); // 星星符号
-                essenceTextLabel.setForeground(new Color(255, 215, 0)); // 金色
-                essenceTextLabel.setFont(essenceTextLabel.getFont().deriveFont(Font.BOLD, 16f));
-                essenceTextLabel.setToolTipText("精华帖子");
-                essenceTextLabel.setBorder(new EmptyBorder(0, 5, 0, 0));
-                rightSection.add(essenceTextLabel, 0);
-                System.out.println("[DEBUG][精华功能] 使用文字★作为精华标识");
+            @Override public void mouseExited(java.awt.event.MouseEvent e) {
+                try {
+                    java.lang.reflect.Method m = tag.getClass().getDeclaredMethod("startAnim", Color.class, Color.class);
+                    m.setAccessible(true);
+                    m.invoke(tag, tagBaseBg, tagBaseFg);
+                } catch (Exception ignored) {
+                    tag.setBackground(tagBaseBg);
+                    tag.setForeground(tagBaseFg);
+                    tag.repaint();
+                }
             }
-        } else {
-            System.out.println("[DEBUG][精华功能] 非精华帖子，不添加图标 - 帖子ID=" + thread.getThreadId());
-        }
-        
-        rightSection.add(categoryTag);
+        };
+        installHoverListenerRecursive(cardPanel, tagSync);
 
-        JPanel firstLine = new JPanel(new BorderLayout());
-        firstLine.setOpaque(false);
-        firstLine.add(nameTimeStack, BorderLayout.WEST);
-        firstLine.add(rightSection, BorderLayout.EAST);
-        firstLine.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        // 第二行：标题（不加粗但较大），与第一行左端对齐，顶部留出适当空隙
-        JLabel titleLabel = new JLabel(thread.getTitle());
-        titleLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 16f));
-        titleLabel.setForeground(new Color(55, 65, 81));
-        titleLabel.setBorder(new EmptyBorder(6, 0, 0, 0));
-
+        // 悬浮联动需要在 nameLabel 定义之后使用它
         java.awt.event.MouseAdapter hover = new java.awt.event.MouseAdapter() {
             public void mouseEntered(java.awt.event.MouseEvent e) {
-                System.out.println("[DEBUG] 鼠标进入帖子项，开始显示阴影效果");
                 currentBg[0] = hoverBg;
-                hoverActive[0] = true;
                 cardPanel.repaint();
-                // 悬浮整卡片时，作者名改为墨绿色
+                // 悬浮整卡片时，姓名改为墨绿色
                 nameLabel.setForeground(new Color(24, 121, 78));
-                // 悬浮整卡片时，标签变墨绿色
-                try {
-                    java.lang.reflect.Method m = categoryTag.getClass().getDeclaredMethod("startAnim", Color.class, Color.class);
-                    m.setAccessible(true);
-                    m.invoke(categoryTag, new Color(24, 121, 78), Color.WHITE);
-                } catch (Exception ignore) {}
             }
             public void mouseExited(java.awt.event.MouseEvent e) {
-                System.out.println("[DEBUG] 鼠标离开帖子项，隐藏阴影效果");
                 currentBg[0] = defaultBg;
-                hoverActive[0] = false;
                 cardPanel.repaint();
-                // 离开时恢复作者名默认颜色
-                nameLabel.setForeground(new Color(55, 65, 81));
-                // 离开时标签恢复为浅绿色底、墨绿色字
-                try {
-                    java.lang.reflect.Method m = categoryTag.getClass().getDeclaredMethod("startAnim", Color.class, Color.class);
-                    m.setAccessible(true);
-                    m.invoke(categoryTag, new Color(223, 245, 232), new Color(24, 121, 78));
-                } catch (Exception ignore) {}
+                // 离开时恢复姓名默认颜色
+                nameLabel.setForeground(new Color(31, 41, 55));
             }
             public void mouseClicked(java.awt.event.MouseEvent e) { showThreadDetail(thread); }
         };
-        // 递归安装悬浮监听，确保移动到子组件时不丢失"整体悬浮"效果
+        // 递归安装悬浮监听，确保移动到子组件时不丢失“整体悬浮”效果
         installHoverListenerRecursive(cardPanel, hover);
 
-        // 第三行：摘要（较小较灰），与标题左对齐，限制为单行显示避免挤压点赞回复区域
-        String summaryText = getContentSummary(thread.getContent(), 40);
-        JLabel summaryLabel = new JLabel("<html><div style='line-height:1.2; max-height: 1.2em; overflow: hidden; white-space: nowrap;'>" + summaryText + "</div></html>");
+        // 标题与摘要
+        JLabel titleLabel = new JLabel(thread.getTitle());
+        // 标题：不加粗，字号比姓名小一些；与专业之间留出更明显空隙
+        titleLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
+        titleLabel.setForeground(new Color(55, 65, 81));
+        // 与姓名/专业行之间 12px 间距；左侧对齐补齐 8px
+        titleLabel.setBorder(new EmptyBorder(12, 8, 6, 0));
+        JLabel summaryLabel = new JLabel("<html><div style='line-height:1.6;'>" + getContentSummary(thread.getContent(), 60) + "</div></html>");
+        // 预展示内容：不加粗，字号小于标题略大于专业；灰色，颜色略深于专业
         summaryLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 13f));
         summaryLabel.setForeground(new Color(107, 114, 128));
-        summaryLabel.setBorder(new EmptyBorder(6, 0, 0, 0));
+        // 同步补齐左边距 8px，保证与标题、姓名/专业左侧齐平
+        summaryLabel.setBorder(new EmptyBorder(0, 8, 0, 0));
+        // 左对齐并占满行宽
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         summaryLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        // 限制摘要标签的最大高度为单行，确保点赞回复区域始终可见
-        summaryLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20)); // 单行文本的高度
 
-        // 点赞和回复数
-        JPanel footer = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // 底部点赞与评论
+        JPanel footer = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 0));
         footer.setOpaque(false);
-        footer.setBorder(new EmptyBorder(0, 0, 0, 0)); // 确保无额外边距
-        
-        // 使用实际的点赞数而不是计算值
-        int likeCount = thread.getLikeCount() != null ? thread.getLikeCount() : 0;
-        System.out.println("[DEBUG] 帖子点赞数 - 实际值=" + likeCount);
-        
-        // 创建可点击的点赞按钮 - 增大图标尺寸
-        ImageIcon likeIcon = loadScaledIcon("icons/点赞.png", 20, 20);
-        ImageIcon likedIcon = loadScaledIcon("icons/已点赞.png", 20, 20);
-        JToggleButton likeButton = new JToggleButton();
-        likeButton.setToolTipText("赞");
-        likeButton.setIcon(likeIcon);
-        if (likedIcon != null) likeButton.setSelectedIcon(likedIcon);
-        likeButton.setFocusPainted(false);
-        likeButton.setBorderPainted(false);
-        likeButton.setContentAreaFilled(false);
-        likeButton.setOpaque(false);
-        likeButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        
-        // 设置初始状态
-        boolean isLiked = thread.getIsLiked() != null ? thread.getIsLiked() : false;
-        likeButton.setSelected(isLiked);
-        
-        // 添加点赞数量标签
-        JLabel likeCountLabel = new JLabel(" " + likeCount);
-        likeCountLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
-        likeCountLabel.setForeground(new Color(156, 163, 175));
-        
-        // 创建点赞容器 - 确保左对齐
-        JPanel likeContainer = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        likeContainer.setOpaque(false);
-        likeContainer.setBorder(new EmptyBorder(0, -5, 0, 0)); // 向左移动点赞标识
-        likeContainer.add(likeButton);
-        likeContainer.add(likeCountLabel);
-        
-        // 添加点赞按钮事件监听器
-        likeButton.addActionListener(e -> {
-            toggleThreadLike(thread.getThreadId(), likeButton, likeCountLabel);
-        });
-        
-        footer.add(likeContainer);
-        
-        // 添加回复数标识
-        int replyCount = thread.getReplyCount() != null ? thread.getReplyCount() : 0;
-        System.out.println("[DEBUG] 回复数 - 原始值=" + thread.getReplyCount() + ", 处理后=" + replyCount);
-        
-        // 增大回复图标尺寸
-        ImageIcon replySmall = loadScaledIcon("icons/评论.png", 20, 20);
-        JLabel replyLabel = new JLabel(" " + replyCount);
-        replyLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
-        replyLabel.setForeground(new Color(156, 163, 175));
-        // 设置回复标签名称以便后续更新
-        replyLabel.setName("reply_count_" + thread.getThreadId());
-        if (replySmall != null) {
-            replyLabel.setIcon(replySmall);
-            System.out.println("[DEBUG] 回复图标加载成功");
-        } else {
-            System.out.println("[DEBUG] 回复图标加载失败");
-        }
-        replyLabel.setIconTextGap(6); // 增大图标与文字间距
-        replyLabel.setBorder(new EmptyBorder(0, 10, 0, 0)); // 在回复标识前添加间距，向左移动
-        footer.add(replyLabel);
-        
-        System.out.println("[DEBUG] 点赞和回复标识创建完成 - 点赞数=" + likeCount + ", 回复数=" + replyCount);
-        
+        int likeCount = Math.max(0, (thread.getReplyCount() * 23) % 300);
+        ImageIcon likeSmall = loadScaledIcon("icons/点赞.png", 16, 16);
+        ImageIcon commentSmall = loadScaledIcon("icons/评论.png", 16, 16);
+        JLabel likeLabel = new JLabel(" " + likeCount);
+        // 底部信息：更小更灰更不显眼
+        likeLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 11f));
+        likeLabel.setForeground(new Color(156, 163, 175));
+        if (likeSmall != null) likeLabel.setIcon(likeSmall);
+        likeLabel.setIconTextGap(4);
+        JLabel commentLabel = new JLabel(" " + thread.getReplyCount());
+        commentLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 11f));
+        commentLabel.setForeground(new Color(156, 163, 175));
+        if (commentSmall != null) commentLabel.setIcon(commentSmall);
+        commentLabel.setIconTextGap(4);
+        footer.add(likeLabel);
+        footer.add(commentLabel);
+        // 左对齐并占满行宽
         footer.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JPanel centerStack = new JPanel();
         centerStack.setLayout(new BoxLayout(centerStack, BoxLayout.Y_AXIS));
         centerStack.setOpaque(false);
         centerStack.setAlignmentX(Component.LEFT_ALIGNMENT);
-        
-        // 设置各组件的最大尺寸，确保布局稳定
-        firstLine.setMaximumSize(new Dimension(Integer.MAX_VALUE, nameTimeStack.getPreferredSize().height));
+        // 最大宽度填充，避免被居中造成左侧空白
+        header.setMaximumSize(new Dimension(Integer.MAX_VALUE, header.getPreferredSize().height));
         titleLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleLabel.getPreferredSize().height));
-        // summaryLabel的最大高度已在上面设置
+        summaryLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, summaryLabel.getPreferredSize().height));
         footer.setMaximumSize(new Dimension(Integer.MAX_VALUE, footer.getPreferredSize().height));
-        
-        centerStack.add(firstLine);
+        centerStack.add(header);
         centerStack.add(titleLabel);
         centerStack.add(summaryLabel);
-        // 正文与点赞/评论区之间留 8px 间隔（减少间隔，为点赞回复区域留出更多空间）
-        centerStack.add(Box.createVerticalStrut(8));
+        // 正文与点赞/评论区之间留 12px 间隔
+        centerStack.add(Box.createVerticalStrut(12));
         centerStack.add(footer);
-        
-        // 确保点赞回复区域始终可见，添加一个不可见的占位符
-        centerStack.add(Box.createVerticalStrut(4));
 
         cardPanel.add(westWrap, BorderLayout.WEST);
         cardPanel.add(centerStack, BorderLayout.CENTER);
@@ -2129,33 +1357,11 @@ public class StudentForumModule implements IModuleView {
 
         // 姓名悬浮主题色：墨绿色
         makeNameHoverGreen(nameLabel, new Color(55, 65, 81));
-
-        // 关键：限制垂直最大高度为其首选高度，防止在 BoxLayout(Y_AXIS) 下被拉伸占满
-        // 同时保持横向最大宽度填充，确保左右填充一致 [[memory:8117340]]
-        // 确保最小高度足够显示点赞回复区域
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override public void run() {
-                Dimension cardPref = cardPanel.getPreferredSize();
-                if (cardPref != null) {
-                    // 确保最小高度为120px，足够显示所有内容
-                    int minHeight = Math.max(120, cardPref.height);
-                    cardPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, minHeight));
-                    cardPanel.setMinimumSize(new Dimension(0, minHeight));
-                }
-                Dimension itemPref = itemPanel.getPreferredSize();
-                if (itemPref != null) {
-                    int minHeight = Math.max(120, itemPref.height);
-                    itemPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, minHeight));
-                    itemPanel.setMinimumSize(new Dimension(0, minHeight));
-                }
-            }
-        });
-
         return itemPanel;
     }
 
     /**
-     * 为容器及其所有子组件安装同一个鼠标监听，保证"整体悬浮"在子组件上仍然生效。
+     * 为容器及其所有子组件安装同一个鼠标监听，保证“整体悬浮”在子组件上仍然生效。
      */
     private void installHoverListenerRecursive(java.awt.Component comp, java.awt.event.MouseListener listener) {
         if (comp == null || listener == null) return;
@@ -2257,137 +1463,25 @@ public class StudentForumModule implements IModuleView {
         return new Color(r, g, bl, al);
     }
 
-    private void sortThreads() {
-        if (threads == null || threads.size() <= 1) return;
-        java.util.Collections.sort(threads, new java.util.Comparator<ThreadVO>() {
-            @Override public int compare(ThreadVO a, ThreadVO b) {
-                if (a == b) return 0;
-                if (a == null) return 1;
-                if (b == null) return -1;
-                switch (currentSortMode) {
-                    case ESSENCE: {
-                        // 精华模式：优先显示精华帖子，然后按创建时间倒序
-                        boolean aIsEssence = a.getIsEssence() != null && a.getIsEssence();
-                        boolean bIsEssence = b.getIsEssence() != null && b.getIsEssence();
-                        
-                        // 精华帖子排在前面
-                        if (aIsEssence && !bIsEssence) return -1;
-                        if (!aIsEssence && bIsEssence) return 1;
-                        
-                        // 两个都是精华或都不是精华时，按创建时间倒序
-                        java.sql.Timestamp ca = a.getCreatedTime();
-                        java.sql.Timestamp cb = b.getCreatedTime();
-                        if (ca == null && cb == null) break;
-                        if (ca == null) return 1;
-                        if (cb == null) return -1;
-                        return Long.compare(cb.getTime(), ca.getTime());
-                    }
-                    case HOT: {
-                        int ra = a.getReplyCount() != null ? a.getReplyCount() : 0;
-                        int rb = b.getReplyCount() != null ? b.getReplyCount() : 0;
-                        int c = Integer.compare(rb, ra); // 回复数降序
-                        if (c != 0) return c;
-                        // 次级：按创建时间倒序
-                        java.sql.Timestamp ca = a.getCreatedTime();
-                        java.sql.Timestamp cb = b.getCreatedTime();
-                        if (ca == null && cb == null) break;
-                        if (ca == null) return 1;
-                        if (cb == null) return -1;
-                        return Long.compare(cb.getTime(), ca.getTime());
-                    }
-                    case LATEST:
-                    default: {
-                        // 最新：按创建时间倒序（发表时间）
-                        java.sql.Timestamp ca = a.getCreatedTime();
-                        java.sql.Timestamp cb = b.getCreatedTime();
-                        if (ca == null && cb == null) break;
-                        if (ca == null) return 1;
-                        if (cb == null) return -1;
-                        int c = Long.compare(cb.getTime(), ca.getTime());
-                        if (c != 0) return c;
-                        // 次级：按更新时间倒序
-                        java.sql.Timestamp ua = a.getUpdatedTime();
-                        java.sql.Timestamp ub = b.getUpdatedTime();
-                        if (ua == null && ub == null) break;
-                        if (ua == null) return 1;
-                        if (ub == null) return -1;
-                        return Long.compare(ub.getTime(), ua.getTime());
-                    }
-                }
-                return 0;
-            }
-        });
-    }
-
     private String getContentSummary(String content, int maxLen) {
         if (content == null) return "";
         String plain = content.replaceAll("\n", " ").trim();
         if (plain.length() <= maxLen) return plain;
-        
-        // 对于中文字符，适当减少字符数以确保单行显示
-        String result = plain.substring(0, maxLen);
-        // 如果截断位置是中文，尝试向前调整到合适的位置
-        if (maxLen < plain.length() && isChineseChar(result.charAt(result.length() - 1))) {
-            // 向前查找非中文字符作为截断点
-            for (int i = result.length() - 1; i >= 0; i--) {
-                if (!isChineseChar(result.charAt(i))) {
-                    result = result.substring(0, i + 1);
-                    break;
-                }
-            }
-        }
-        return result + "...";
-    }
-    
-    private boolean isChineseChar(char c) {
-        return c >= 0x4E00 && c <= 0x9FFF;
+        return plain.substring(0, maxLen) + "...";
     }
 
-    private String getThreadSectionName(ThreadVO t) {
-        if (t == null) return null;
-        if (t.getSectionName() != null && !t.getSectionName().trim().isEmpty()) return t.getSectionName();
-        return "未分区";
+    private String getThreadCategory(ThreadVO t) {
+        // 模拟发帖区域标签（无后端字段时）
+        String[] categories = {"学术交流", "校园生活", "技术讨论", "课程分享", "资源推荐"};
+        int idx = t.getThreadId() != null ? Math.abs(t.getThreadId()) % categories.length : 0;
+        return categories[idx];
     }
 
     private Image loadResourceImage(String path) {
-        if (path == null || path.trim().isEmpty()) return null;
-        final String normalized = path.replace('\\', '/');
         try {
-            // 候选路径（类路径变体 + 资源目录前缀 + 绝对/相对文件路径）
-            String cp1 = normalized;
-            String cp2 = normalized.startsWith("/") ? normalized.substring(1) : "/" + normalized; // 处理带/或不带/两种写法
-            String cp3 = normalized.startsWith("resources/") ? normalized : ("resources/" + normalized);
-            String cp4 = cp3.startsWith("/") ? cp3.substring(1) : "/" + cp3;
-
-            String[] candidates = new String[] { cp1, cp2, cp3, cp4 };
-
-            // 1) 从当前线程的 ClassLoader 与类的 ClassLoader 依次尝试
-            ClassLoader cl1 = Thread.currentThread().getContextClassLoader();
-            ClassLoader cl2 = getClass().getClassLoader();
-            for (String p : candidates) {
-                if (p == null || p.trim().isEmpty()) continue;
-                try {
-                    java.net.URL url = (cl1 != null ? cl1.getResource(p) : null);
-                    if (url == null && cl2 != null) url = cl2.getResource(p);
-                    if (url != null) {
-                        return new ImageIcon(url).getImage();
-                    }
-                } catch (Exception ignored) { }
-            }
-
-            // 2) 文件系统（相对/绝对路径）
-            for (String p : new String[] { normalized, cp3 }) {
-                try {
-                    java.io.File file = new java.io.File(p);
-                    if (file.exists()) {
-                        return new ImageIcon(file.getAbsolutePath()).getImage();
-                    }
-                } catch (Exception ignored) { }
-            }
-        } catch (Exception e) {
-            System.err.println("加载图片失败: " + normalized + " - " + e.getMessage());
-        }
-        return null;
+            java.net.URL url = getClass().getClassLoader().getResource(path);
+            return url != null ? new ImageIcon(url).getImage() : null;
+        } catch (Exception ignored) { return null; }
     }
     
     /**
@@ -2405,223 +1499,15 @@ public class StudentForumModule implements IModuleView {
     private void showThreadDetail(ThreadVO thread) {
         currentThread = thread;
         
-        // 设置帖子标题
         threadTitleLabel.setText(thread.getTitle());
-        
-        // 设置分区标签
-        if (threadCategoryTag != null) {
-            String sectionName = getThreadSectionName(thread);
-            threadCategoryTag.setText(sectionName);
-        }
-        
-        // 设置帖子内容并自动调整高度
         threadContentArea.setText(thread.getContent());
-        adjustTextAreaHeight(threadContentArea);
+        threadAuthorLabel.setText("作者: " + thread.getAuthorName());
+        threadTimeLabel.setText("时间: " + formatTime(thread.getCreatedTime()));
+        threadReplyCountLabel.setText("回复数: " + thread.getReplyCount());
         
-        // 设置作者姓名（不显示"作者:"前缀）
-        threadAuthorLabel.setText(thread.getAuthorName());
+        refreshReplyList();
         
-        // 设置发表时间（不显示"时间:"前缀）
-        threadTimeLabel.setText(formatTime(thread.getCreatedTime()));
-        
-        // 更新点赞和评论数量显示
-        updateStatsDisplay(thread);
-        
-        // 更新评论区标题显示回复数量
-        updateCommentSectionTitle(thread);
-        
-        // 获取并显示回复列表
-        fetchPostsFromServer(thread.getThreadId());
-        
-        // 切换到详情视图
         cardLayout.show(mainPanel, "DETAIL");
-        
-        // 强制完整重绘，避免评论区空白问题
-        SwingUtilities.invokeLater(() -> {
-            threadDetailPanel.revalidate();
-            threadDetailPanel.repaint();
-        });
-    }
-    
-    private void updateStatsDisplay(ThreadVO thread) {
-        // 更新评论数量显示
-        if (threadReplyCountLabel != null) {
-            threadReplyCountLabel.setText(String.valueOf(thread.getReplyCount() != null ? thread.getReplyCount() : 0));
-        }
-        
-        // 更新点赞数量显示
-        if (likeCountLabel != null) {
-            likeCountLabel.setText(String.valueOf(thread.getLikeCount() != null ? thread.getLikeCount() : 0));
-        }
-        
-        // 更新点赞按钮状态
-        updateLikeButtonState(thread);
-    }
-    
-    /**
-     * 更新点赞按钮状态
-     * @param thread 当前帖子对象
-     */
-    private void updateLikeButtonState(ThreadVO thread) {
-        // 查找帖子详情页面的点赞按钮
-        JToggleButton likeButton = findLikeButtonInDetailPanel();
-        if (likeButton != null) {
-            boolean isLiked = thread.getIsLiked() != null ? thread.getIsLiked() : false;
-            likeButton.setSelected(isLiked);
-        }
-    }
-    
-    /**
-     * 在帖子详情面板中查找点赞按钮
-     * @return 点赞按钮，如果找不到返回null
-     */
-    private JToggleButton findLikeButtonInDetailPanel() {
-        if (threadDetailPanel == null) return null;
-        
-        // 递归查找点赞按钮
-        return findLikeButtonRecursive(threadDetailPanel);
-    }
-    
-    /**
-     * 递归查找点赞按钮
-     * @param component 要搜索的组件
-     * @return 点赞按钮，如果找不到返回null
-     */
-    private JToggleButton findLikeButtonRecursive(Component component) {
-        if (component instanceof JToggleButton) {
-            JToggleButton button = (JToggleButton) component;
-            if ("赞".equals(button.getToolTipText())) {
-                return button;
-            }
-        }
-        
-        if (component instanceof Container) {
-            Container container = (Container) component;
-            for (Component child : container.getComponents()) {
-                JToggleButton result = findLikeButtonRecursive(child);
-                if (result != null) {
-                    return result;
-                }
-            }
-        }
-        
-        return null;
-    }
-    
-    /**
-     * 同步更新帖子列表页面的点赞状态
-     * @param threadId 帖子ID
-     * @param isLiked 是否已点赞
-     * @param likeCount 点赞数量
-     */
-    private void syncThreadLikeState(Integer threadId, Boolean isLiked, Integer likeCount) {
-        // 更新当前帖子对象的状态
-        if (currentThread != null && currentThread.getThreadId().equals(threadId)) {
-            currentThread.setIsLiked(isLiked);
-            currentThread.setLikeCount(likeCount);
-        }
-        
-        // 更新帖子列表中的对应帖子状态
-        if (threads != null) {
-            for (ThreadVO thread : threads) {
-                if (thread.getThreadId().equals(threadId)) {
-                    thread.setIsLiked(isLiked);
-                    thread.setLikeCount(likeCount);
-                    break;
-                }
-            }
-        }
-        
-        // 刷新帖子列表显示
-        refreshThreadList();
-    }
-    
-    /**
-     * 更新评论区标题，显示回复数量
-     * @param thread 当前帖子对象
-     */
-    private void updateCommentSectionTitle(ThreadVO thread) {
-        if (commentSectionTitle != null) {
-            int replyCount = thread.getReplyCount() != null ? thread.getReplyCount() : 0;
-            commentSectionTitle.setText("评论区(" + replyCount + ")");
-        }
-    }
-    
-    /**
-     * 更新帖子列表中指定帖子的信息（如回复数量）
-     * @param thread 要更新的帖子对象
-     */
-    private void updateThreadInList(ThreadVO thread) {
-        if (thread == null || thread.getThreadId() == null) {
-            return;
-        }
-        
-        // 获取帖子列表面板
-        JPanel threadItemsPanel = (JPanel) threadScrollPane.getViewport().getView();
-        if (threadItemsPanel == null) {
-            return;
-        }
-        
-        // 遍历所有帖子项，找到对应的帖子并更新其回复数量显示
-        Component[] components = threadItemsPanel.getComponents();
-        for (Component comp : components) {
-            if (comp instanceof JPanel) {
-                JPanel itemPanel = (JPanel) comp;
-                // 检查这个组件是否对应我们要更新的帖子
-                String itemName = itemPanel.getName();
-                if (itemName != null && itemName.equals("thread_item_" + thread.getThreadId())) {
-                    updateThreadItemReplyCount(itemPanel, thread);
-                    break;
-                }
-            }
-        }
-    }
-    
-    /**
-     * 更新帖子项中的回复数量显示
-     * @param itemPanel 帖子项面板
-     * @param thread 帖子对象
-     */
-    private void updateThreadItemReplyCount(JPanel itemPanel, ThreadVO thread) {
-        int replyCount = thread.getReplyCount() != null ? thread.getReplyCount() : 0;
-        
-        // 递归查找并更新回复数量标签
-        updateReplyCountLabelInComponent(itemPanel, thread.getThreadId(), replyCount);
-        
-        // 重新绘制组件
-        itemPanel.revalidate();
-        itemPanel.repaint();
-    }
-    
-    /**
-     * 在组件中递归查找并更新回复数量标签
-     * @param component 要搜索的组件
-     * @param threadId 帖子ID
-     * @param replyCount 新的回复数量
-     */
-    private void updateReplyCountLabelInComponent(Component component, Integer threadId, int replyCount) {
-        if (component == null) {
-            return;
-        }
-        
-        // 检查是否是回复数量标签
-        if (component instanceof JLabel) {
-            JLabel label = (JLabel) component;
-            String labelName = label.getName();
-            // 如果标签名称匹配回复数量标签的命名规则
-            if (labelName != null && labelName.equals("reply_count_" + threadId)) {
-                label.setText(" " + replyCount);
-                return;
-            }
-        }
-        
-        // 如果是容器，递归检查子组件
-        if (component instanceof Container) {
-            Container container = (Container) component;
-            for (Component child : container.getComponents()) {
-                updateReplyCountLabelInComponent(child, threadId, replyCount);
-            }
-        }
     }
     
     private void refreshReplyList() {
@@ -2631,17 +1517,8 @@ public class StudentForumModule implements IModuleView {
             for (PostVO reply : replies) {
                 if (reply.getThreadId().equals(currentThread.getThreadId())) {
                     JPanel replyItem = createReplyItem(reply);
-                    
-                    // 为每条评论项添加顶部灰色分割线和底部灰色分割线
-                    replyItem.setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createCompoundBorder(
-                            BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(229, 231, 235)), // 浅灰色顶部边框
-                            BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(229, 231, 235))  // 浅灰色底部边框
-                        ),
-                        BorderFactory.createEmptyBorder(12, 12, 12, 12)
-                    ));
-                    
                     replyListPanel.add(replyItem);
+                    replyListPanel.add(Box.createVerticalStrut(10));
                 }
             }
         }
@@ -2649,93 +1526,43 @@ public class StudentForumModule implements IModuleView {
         replyListPanel.revalidate();
         replyListPanel.repaint();
     }
-
-    private void fetchPostsFromServer(Integer threadId) {
-        client.net.ServerConnection conn = this.connectionRef;
-        if (conn == null || !conn.isConnected()) {
-            JOptionPane.showMessageDialog(root, "未连接到服务器", "错误", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        conn.setMessageListener(common.protocol.MessageType.GET_POSTS_SUCCESS, new client.net.ServerConnection.MessageListener() {
-            @Override public void onMessageReceived(common.protocol.Message message) {
-                try {
-                    @SuppressWarnings("unchecked")
-                    java.util.List<common.vo.PostVO> list = (java.util.List<common.vo.PostVO>) message.getData();
-                    SwingUtilities.invokeLater(new Runnable() {
-                        @Override public void run() {
-                            replies.clear();
-                            if (list != null) replies.addAll(list);
-                            refreshReplyList();
-                        }
-                    });
-                } catch (Exception ignored) {}
-            }
-        });
-        conn.sendMessage(new common.protocol.Message(common.protocol.MessageType.GET_POSTS_REQUEST, threadId));
-    }
     
     private JPanel createReplyItem(PostVO reply) {
         JPanel itemPanel = new JPanel(new BorderLayout());
         itemPanel.setBackground(new Color(255, 255, 255));
-        // 移除绿色边框，只保留内边距
-        itemPanel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
-        // 设置固定高度 - 增加高度以确保时间标签可见
-        itemPanel.setPreferredSize(new Dimension(Integer.MAX_VALUE, 140));
-        itemPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
+        itemPanel.setBorder(new LineBorder(new Color(229, 231, 235), 1));
+        // 自适应高度，避免底部点赞/回复被裁剪
+        itemPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         // 左侧头像：默认头像
         JPanel avatarWrap = new JPanel(new BorderLayout());
         avatarWrap.setOpaque(false);
-        avatarWrap.setBorder(new EmptyBorder(0, 0, 0, 12)); // 只保留右侧间距
+        avatarWrap.setBorder(new EmptyBorder(12, 12, 12, 0));
         CircularAvatar avatar = new CircularAvatar(36);
         Image aimg = loadResourceImage("icons/默认头像.png");
         if (aimg != null) avatar.setAvatarImage(aimg);
         avatar.setBorderWidth(0f);
         avatarWrap.add(avatar, BorderLayout.NORTH);
 
-        // 右侧内容 - 使用BoxLayout确保时间标签有足够空间
-        JPanel right = new JPanel();
-        right.setLayout(new BoxLayout(right, BoxLayout.Y_AXIS));
-        right.setOpaque(true);
-        right.setBackground(Color.WHITE);
-        right.setBorder(new EmptyBorder(0, 0, 0, 0)); // 移除内边距，由外层统一管理
+        // 右侧内容
+        JPanel right = new JPanel(new BorderLayout());
+        right.setOpaque(false);
+        right.setBorder(new EmptyBorder(12, 12, 12, 12));
 
-        // 第一行：姓名和时间 - 使用BoxLayout+glue防止时间标签被挤没
-        JPanel topLine = new JPanel();
+        JPanel topLine = new JPanel(new BorderLayout());
         topLine.setOpaque(false);
-        topLine.setLayout(new BoxLayout(topLine, BoxLayout.X_AXIS));
-        topLine.setMaximumSize(new Dimension(Integer.MAX_VALUE, 25));
-        topLine.setMinimumSize(new Dimension(0, 25));
-        
         JLabel nameLabel = new JLabel(reply.getAuthorName());
         nameLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
         nameLabel.setForeground(new Color(55, 65, 81));
-        // 调试信息：检查回复时间
-        System.out.println("[DEBUG] 创建回复项 - PostID=" + reply.getPostId() + 
-                          ", AuthorName=" + reply.getAuthorName() + 
-                          ", CreatedTime=" + reply.getCreatedTime() + 
-                          ", FormattedTime=" + formatTime(reply.getCreatedTime()));
-        
         JLabel timeLabel = new JLabel(formatTime(reply.getCreatedTime()));
         timeLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
-        timeLabel.setForeground(new Color(107, 114, 128)); // 使用灰色文字
-        timeLabel.setHorizontalAlignment(SwingConstants.RIGHT); // 右对齐
-        // 删除对timeLabel的setPreferredSize固定宽度，让BoxLayout自然处理
-        timeLabel.setOpaque(false); // 设置透明背景
+        timeLabel.setForeground(new Color(156, 163, 175));
         // 姓名悬浮主题色：墨绿色
         makeNameHoverGreen(nameLabel, new Color(55, 65, 81));
-        
-        topLine.add(nameLabel);
-        topLine.add(Box.createHorizontalGlue()); // 关键：把时间推到最右侧
-        topLine.add(timeLabel);
+        topLine.add(nameLabel, BorderLayout.WEST);
+        topLine.add(timeLabel, BorderLayout.EAST);
 
-        // 限制回复内容长度以适应固定高度
-        String content = reply.getContent();
-        if (content.length() > 100) {
-            content = content.substring(0, 100) + "...";
-        }
-        
-        JTextArea contentArea = new JTextArea(content);
+        JTextArea contentArea = new JTextArea(reply.getContent());
         contentArea.setFont(UIManager.getFont("TextArea.font").deriveFont(Font.PLAIN, 14f));
         contentArea.setForeground(new Color(31, 41, 55));
         contentArea.setLineWrap(true);
@@ -2743,19 +1570,10 @@ public class StudentForumModule implements IModuleView {
         contentArea.setEditable(false);
         contentArea.setOpaque(false);
         contentArea.setBorder(new EmptyBorder(4, 0, 6, 0));
-        // 设置内容区域的最大高度以适应固定高度的评论项 - 减少高度为时间标签留出空间
-        contentArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
 
-        JPanel ops = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0)); // 减少间距从12到8
+        JPanel ops = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
         ops.setOpaque(false);
-        ops.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30)); // 限制操作按钮区域高度
-        ops.setBorder(new EmptyBorder(-2, -4, 0, 0)); // 向上和向左移动整个操作区域
-        
-        // 点赞按钮和数量
-        JPanel likePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        likePanel.setOpaque(false);
-        likePanel.setBorder(new EmptyBorder(0, -2, 0, 0)); // 进一步向左移动点赞按钮
-        
+        // 回复项操作：点赞/回复图标
         ImageIcon likeIcon2 = loadScaledIcon("icons/点赞.png", 16, 16);
         ImageIcon likedIcon2 = loadScaledIcon("icons/已点赞.png", 16, 16);
         JToggleButton like = new JToggleButton();
@@ -2767,37 +1585,24 @@ public class StudentForumModule implements IModuleView {
         like.setContentAreaFilled(false);
         like.setOpaque(false);
         like.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        
-        // 设置初始状态
-        boolean isLiked = reply.getIsLiked() != null ? reply.getIsLiked() : false;
-        like.setSelected(isLiked);
-        
-        // 点赞数量标签
-        int likeCount = reply.getLikeCount() != null ? reply.getLikeCount() : 0;
-        JLabel likeCountLabel = new JLabel(String.valueOf(likeCount));
-        likeCountLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 12f));
-        likeCountLabel.setForeground(new Color(156, 163, 175));
-        
-        // 添加点赞按钮事件监听器
-        like.addActionListener(e -> {
-            togglePostLike(reply.getPostId(), like, likeCountLabel);
-        });
-        
-        likePanel.add(like);
-        likePanel.add(likeCountLabel);
-        
-        ops.add(likePanel);
 
-        // 使用BoxLayout添加组件，确保时间标签可见
-        right.add(topLine);
-        right.add(Box.createVerticalStrut(2)); // 添加小间距
-        right.add(contentArea);
-        right.add(Box.createVerticalStrut(2)); // 添加小间距
-        right.add(ops);
-        
-        // 强制重新验证和重绘
-        right.revalidate();
-        right.repaint();
+        ImageIcon replyIcon = loadScaledIcon("icons/评论.png", 16, 16);
+        JButton replyBtn = new JButton();
+        replyBtn.setToolTipText("回复");
+        replyBtn.setIcon(replyIcon);
+        replyBtn.setFocusPainted(false);
+        replyBtn.setBorderPainted(false);
+        replyBtn.setContentAreaFilled(false);
+        replyBtn.setOpaque(false);
+        replyBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        JButton more = createIconButton("⋮", "更多", new Color(107, 114, 128));
+        ops.add(like);
+        ops.add(replyBtn);
+        ops.add(more);
+
+        right.add(topLine, BorderLayout.NORTH);
+        right.add(contentArea, BorderLayout.CENTER);
+        right.add(ops, BorderLayout.SOUTH);
 
         itemPanel.add(avatarWrap, BorderLayout.WEST);
         itemPanel.add(right, BorderLayout.CENTER);
@@ -2805,152 +1610,84 @@ public class StudentForumModule implements IModuleView {
         return itemPanel;
     }
     
-    
-    
-    
-    /**
-     * 重置回复输入框状态
-     */
-    private void resetReplyInputState() {
-        // 恢复默认无边框样式
-        replyTextArea.setBorder(new EmptyBorder(12, 20, 12, 12));
-        replyTextArea.setText("");
-        
-        // 重新添加焦点监听器以确保输入框可以正常获得焦点和显示光标
-        replyTextArea.addFocusListener(new java.awt.event.FocusListener() {
-            @Override
-            public void focusGained(java.awt.event.FocusEvent evt) {
-                // 触发容器的重绘以显示焦点状态
-                SwingUtilities.invokeLater(() -> {
-                    if (replyTextArea.getParent() != null) {
-                        replyTextArea.getParent().repaint();
-                    }
-                });
-            }
-            
-            @Override
-            public void focusLost(java.awt.event.FocusEvent evt) {
-                // 触发容器的重绘以隐藏焦点状态
-                SwingUtilities.invokeLater(() -> {
-                    if (replyTextArea.getParent() != null) {
-                        replyTextArea.getParent().repaint();
-                    }
-                });
-            }
-        });
+    private void showCreateThreadDialog() {
+        threadTitleField.setText("");
+        threadContentField.setText("");
+        if (categoryComboBox != null) { categoryComboBox.setSelectedIndex(0); }
+        if (contentCounterLabel != null) { contentCounterLabel.setText("0/500"); }
+        createThreadDialog.setVisible(true);
     }
-
+    
+    private void submitThread() {
+        String title = threadTitleField.getText().trim();
+        String content = threadContentField.getText().trim();
+        String category = categoryComboBox != null ? (String) categoryComboBox.getSelectedItem() : null;
+        
+        if (categoryComboBox != null && (category == null || category.equals("选择分类"))) {
+            JOptionPane.showMessageDialog(createThreadDialog, "请选择分类！", "提示", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (title.isEmpty() || content.isEmpty()) {
+            JOptionPane.showMessageDialog(createThreadDialog, "请填写标题和内容！", "提示", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        
+        // 创建新帖子
+        ThreadVO newThread = new ThreadVO();
+        newThread.setThreadId(threads.size() + 1);
+        newThread.setTitle(title);
+        newThread.setContent(content);
+        newThread.setAuthorName(currentUser != null ? currentUser.getName() : "匿名用户");
+        newThread.setAuthorLoginId(currentUser != null ? currentUser.getId() : "anonymous");
+        newThread.setCreatedTime(new Timestamp(System.currentTimeMillis()));
+        newThread.setReplyCount(0);
+        
+        threads.add(0, newThread); // 添加到列表开头
+        
+        createThreadDialog.setVisible(false);
+        refreshThreadList();
+        
+        JOptionPane.showMessageDialog(root, "帖子发布成功！", "成功", JOptionPane.INFORMATION_MESSAGE);
+    }
+    
     private void submitReply() {
         String content = replyTextArea.getText().trim();
         
-        // 检查是否为空
         if (content.isEmpty()) {
-            showToastMessage("请输入回复内容！", false);
+            JOptionPane.showMessageDialog(root, "请输入回复内容！", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
         
         if (currentThread == null) {
-            showToastMessage("请先选择一个帖子！", false);
+            JOptionPane.showMessageDialog(root, "请先选择一个帖子！", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
         
-        // 发送到服务器创建
+        // 创建新回复
         PostVO newReply = new PostVO();
+        newReply.setPostId(replies.size() + 1);
         newReply.setThreadId(currentThread.getThreadId());
         newReply.setContent(content);
-        client.net.ServerConnection conn = this.connectionRef;
-        if (conn == null || !conn.isConnected()) {
-            showToastMessage("未连接到服务器", false);
-            return;
-        }
-        conn.setMessageListener(common.protocol.MessageType.CREATE_POST_SUCCESS, new client.net.ServerConnection.MessageListener() {
-            @Override public void onMessageReceived(common.protocol.Message message) {
-                SwingUtilities.invokeLater(new Runnable() {
-                    @Override public void run() {
-                        // 重置回复输入框状态
-                        resetReplyInputState();
-                        
-                        // 立即更新当前帖子的回复数量（+1）
-                        if (currentThread != null) {
-                            int currentReplyCount = currentThread.getReplyCount() != null ? currentThread.getReplyCount() : 0;
-                            currentThread.setReplyCount(currentReplyCount + 1);
-                            
-                            // 更新帖子详情页面的回复数量显示
-                            updateStatsDisplay(currentThread);
-                            
-                            // 更新评论区标题显示新的回复数量
-                            updateCommentSectionTitle(currentThread);
-                            
-                            // 更新帖子列表中的回复数量（如果当前在列表中）
-                            updateThreadInList(currentThread);
-                        }
-                        
-                        // 重新获取回复列表以确保数据同步
-                        fetchPostsFromServer(currentThread.getThreadId());
-                        
-                        showToastMessage("回复发布成功！", true);
-                    }
-                });
-            }
-        });
-        conn.sendMessage(new common.protocol.Message(common.protocol.MessageType.CREATE_POST_REQUEST, newReply));
-    }
-    
-    /**
-     * 自动调整文本区域的高度以适应内容
-     * @param textArea 需要调整的文本区域
-     */
-    private void adjustTextAreaHeight(JTextArea textArea) {
-        // 获取文本区域的文档
-        javax.swing.text.Document doc = textArea.getDocument();
-        if (doc == null) return;
+        newReply.setAuthorName(currentUser != null ? currentUser.getName() : "匿名用户");
+        newReply.setAuthorLoginId(currentUser != null ? currentUser.getId() : "anonymous");
+        newReply.setCreatedTime(new Timestamp(System.currentTimeMillis()));
         
-        try {
-            // 获取文本内容
-            String text = doc.getText(0, doc.getLength());
-            if (text == null || text.trim().isEmpty()) {
-                textArea.setRows(1);
-                return;
-            }
-            
-            // 计算文本的行数
-            String[] lines = text.split("\n");
-            int lineCount = lines.length;
-            
-            // 计算每行的字符数，考虑自动换行
-            int maxLineLength = 0;
-            for (String line : lines) {
-                // 估算每行能显示的字符数（基于字体大小和组件宽度）
-                int estimatedCharsPerLine = Math.max(1, textArea.getWidth() / 8); // 粗略估算
-                int wrappedLines = (int) Math.ceil((double) line.length() / estimatedCharsPerLine);
-                maxLineLength = Math.max(maxLineLength, wrappedLines);
-            }
-            
-            // 设置合适的行数，但不超过合理范围
-            int totalRows = Math.min(Math.max(lineCount, maxLineLength), 50); // 最多50行
-            textArea.setRows(totalRows);
-            
-            // 重新验证和重绘
-            textArea.revalidate();
-            textArea.repaint();
-            
-        } catch (Exception e) {
-            // 如果出现异常，设置默认行数
-            textArea.setRows(3);
-        }
+        replies.add(newReply);
+        
+        // 更新帖子回复数
+        currentThread.setReplyCount(currentThread.getReplyCount() + 1);
+        
+        replyTextArea.setText("");
+        refreshReplyList();
+        
+        JOptionPane.showMessageDialog(root, "回复发布成功！", "成功", JOptionPane.INFORMATION_MESSAGE);
     }
     
     private String formatTime(Timestamp timestamp) {
-        if (timestamp == null) {
-            System.out.println("[DEBUG] formatTime: timestamp为null，返回'未知时间'");
-            return "未知时间";
-        }
+        if (timestamp == null) return "未知时间";
         
-        // 直接显示绝对时间，格式：yyyy-MM-dd HH:mm
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
-        String formattedTime = sdf.format(timestamp);
-        System.out.println("[DEBUG] formatTime: timestamp=" + timestamp + ", formatted=" + formattedTime);
-        return formattedTime;
+        return sdf.format(timestamp);
     }
     
     /**
@@ -3034,580 +1771,7 @@ public class StudentForumModule implements IModuleView {
     public void initContext(common.vo.UserVO currentUser, client.net.ServerConnection connection) { 
         this.currentUser = currentUser;
         this.isAdmin = currentUser != null && currentUser.isAdmin();
-        this.connectionRef = connection;
-        System.out.println("[Forum][Client] initContext: user=" + (currentUser != null ? currentUser.getLoginId() : "null") + ", connected=" + (connection != null && connection.isConnected()));
-        // 初次载入时拉取服务器数据（头像仍用默认图片）
-        if (!hasInitialized) {
-            hasInitialized = true;
-            SwingUtilities.invokeLater(new Runnable() { @Override public void run() {
-                fetchSectionsFromServer();
-                fetchThreadsFromServer();
-            } });
-        }
     }
-
-    private client.net.ServerConnection connectionRef;
 
     public static void registerTo(Class<?> ignored) { ModuleRegistry.register(new StudentForumModule()); }
-
-
-    private void fetchSectionsFromServer() {
-        client.net.ServerConnection conn = this.connectionRef;
-        if (conn == null || !conn.isConnected()) {
-            return;
-        }
-        conn.setMessageListener(common.protocol.MessageType.GET_FORUM_SECTIONS_SUCCESS, new client.net.ServerConnection.MessageListener() {
-            @Override public void onMessageReceived(common.protocol.Message message) {
-                try {
-                    @SuppressWarnings("unchecked")
-                    java.util.List<common.vo.ForumSectionVO> list = (java.util.List<common.vo.ForumSectionVO>) message.getData();
-                    SwingUtilities.invokeLater(() -> {
-                        sections.clear();
-                        if (list != null) sections.addAll(list);
-                        refreshHotSections();
-                    });
-                } catch (Exception e) {
-                }
-                try { conn.removeMessageListener(common.protocol.MessageType.GET_FORUM_SECTIONS_SUCCESS); } catch (Exception ignore) {}
-            }
-        });
-        boolean sent = conn.sendMessage(new common.protocol.Message(common.protocol.MessageType.GET_FORUM_SECTIONS_REQUEST));
-        if (!sent) { }
-    }
-    
-    /**
-     * 切换主题点赞状态
-     * @param threadId 主题ID
-     * @param likeButton 点赞按钮
-     * @param likeCountLabel 点赞数量标签
-     */
-    private void toggleThreadLike(Integer threadId, JToggleButton likeButton, JLabel likeCountLabel) {
-        client.net.ServerConnection conn = this.connectionRef;
-        if (conn == null || !conn.isConnected()) {
-            JOptionPane.showMessageDialog(root, "未连接到服务器", "错误", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        
-        // 设置消息监听器
-        conn.setMessageListener(common.protocol.MessageType.TOGGLE_THREAD_LIKE_SUCCESS, new client.net.ServerConnection.MessageListener() {
-            @Override
-            public void onMessageReceived(common.protocol.Message message) {
-                try {
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> responseData = (java.util.Map<String, Object>) message.getData();
-                    SwingUtilities.invokeLater(() -> {
-                        if (responseData != null) {
-                            Boolean result = (Boolean) responseData.get("isLiked");
-                            Integer likeCount = (Integer) responseData.get("likeCount");
-                            
-                            if (result != null) {
-                                // 更新按钮状态
-                                likeButton.setSelected(result);
-                                
-                                // 更新点赞数量
-                                if (likeCount != null) {
-                                    likeCountLabel.setText(" " + likeCount);
-                                }
-                                
-                                // 同步更新帖子列表页面的状态
-                                syncThreadLikeState(threadId, result, likeCount);
-                                
-                                System.out.println("[Forum][Client] 主题点赞状态更新: threadId=" + threadId + ", isLiked=" + result + ", likeCount=" + likeCount);
-                            } else {
-                                // 操作失败，恢复按钮状态
-                                likeButton.setSelected(!likeButton.isSelected());
-                                JOptionPane.showMessageDialog(root, "点赞操作失败", "错误", JOptionPane.ERROR_MESSAGE);
-                            }
-                        } else {
-                            // 操作失败，恢复按钮状态
-                            likeButton.setSelected(!likeButton.isSelected());
-                            JOptionPane.showMessageDialog(root, "点赞操作失败", "错误", JOptionPane.ERROR_MESSAGE);
-                        }
-                    });
-                } catch (Exception e) {
-                    System.err.println("处理点赞响应失败: " + e.getMessage());
-                    SwingUtilities.invokeLater(() -> {
-                        likeButton.setSelected(!likeButton.isSelected());
-                        JOptionPane.showMessageDialog(root, "点赞操作失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-                    });
-                } finally {
-                    try { 
-                        conn.removeMessageListener(common.protocol.MessageType.TOGGLE_THREAD_LIKE_SUCCESS); 
-                    } catch (Exception ignore) {}
-                }
-            }
-        });
-        
-        // 发送点赞请求 - 服务器端期望直接传递threadId
-        try {
-            boolean sent = conn.sendMessage(new common.protocol.Message(common.protocol.MessageType.TOGGLE_THREAD_LIKE_REQUEST, threadId));
-            if (!sent) {
-                SwingUtilities.invokeLater(() -> {
-                    likeButton.setSelected(!likeButton.isSelected());
-                    JOptionPane.showMessageDialog(root, "发送点赞请求失败", "错误", JOptionPane.ERROR_MESSAGE);
-                });
-            }
-        } catch (Exception e) {
-            System.err.println("发送点赞请求异常: " + e.getMessage());
-            SwingUtilities.invokeLater(() -> {
-                likeButton.setSelected(!likeButton.isSelected());
-                JOptionPane.showMessageDialog(root, "发送点赞请求异常: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-            });
-        }
-    }
-    
-    /**
-     * 切换回复点赞状态
-     * @param postId 回复ID
-     * @param likeButton 点赞按钮
-     */
-    private void togglePostLike(Integer postId, JToggleButton likeButton) {
-        togglePostLike(postId, likeButton, null);
-    }
-    
-    /**
-     * 切换回复点赞状态（带数量标签更新）
-     * @param postId 回复ID
-     * @param likeButton 点赞按钮
-     * @param likeCountLabel 点赞数量标签
-     */
-    private void togglePostLike(Integer postId, JToggleButton likeButton, JLabel likeCountLabel) {
-        client.net.ServerConnection conn = this.connectionRef;
-        if (conn == null || !conn.isConnected()) {
-            JOptionPane.showMessageDialog(root, "未连接到服务器", "错误", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        
-        // 设置消息监听器
-        conn.setMessageListener(common.protocol.MessageType.TOGGLE_POST_LIKE_SUCCESS, new client.net.ServerConnection.MessageListener() {
-            @Override
-            public void onMessageReceived(common.protocol.Message message) {
-                try {
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> responseData = (java.util.Map<String, Object>) message.getData();
-                    SwingUtilities.invokeLater(() -> {
-                        if (responseData != null) {
-                            Boolean result = (Boolean) responseData.get("isLiked");
-                            Integer newLikeCount = (Integer) responseData.get("likeCount");
-                            
-                            if (result != null) {
-                                // 更新按钮状态
-                                likeButton.setSelected(result);
-                                
-                                // 更新点赞数量标签
-                                if (likeCountLabel != null && newLikeCount != null) {
-                                    likeCountLabel.setText(String.valueOf(newLikeCount));
-                                }
-                                
-                                System.out.println("[Forum][Client] 回复点赞状态更新: postId=" + postId + ", isLiked=" + result + ", likeCount=" + newLikeCount);
-                            } else {
-                                // 操作失败，恢复按钮状态
-                                likeButton.setSelected(!likeButton.isSelected());
-                                JOptionPane.showMessageDialog(root, "点赞操作失败", "错误", JOptionPane.ERROR_MESSAGE);
-                            }
-                        } else {
-                            // 操作失败，恢复按钮状态
-                            likeButton.setSelected(!likeButton.isSelected());
-                            JOptionPane.showMessageDialog(root, "点赞操作失败", "错误", JOptionPane.ERROR_MESSAGE);
-                        }
-                    });
-                } catch (Exception e) {
-                    System.err.println("处理回复点赞响应失败: " + e.getMessage());
-                    SwingUtilities.invokeLater(() -> {
-                        likeButton.setSelected(!likeButton.isSelected());
-                        JOptionPane.showMessageDialog(root, "点赞操作失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-                    });
-                } finally {
-                    try { 
-                        conn.removeMessageListener(common.protocol.MessageType.TOGGLE_POST_LIKE_SUCCESS); 
-                    } catch (Exception ignore) {}
-                }
-            }
-        });
-        
-        // 发送点赞请求 - 服务器端期望直接传递postId
-        try {
-            boolean sent = conn.sendMessage(new common.protocol.Message(common.protocol.MessageType.TOGGLE_POST_LIKE_REQUEST, postId));
-            if (!sent) {
-                SwingUtilities.invokeLater(() -> {
-                    likeButton.setSelected(!likeButton.isSelected());
-                    JOptionPane.showMessageDialog(root, "发送点赞请求失败", "错误", JOptionPane.ERROR_MESSAGE);
-                });
-            }
-        } catch (Exception e) {
-            System.err.println("发送回复点赞请求异常: " + e.getMessage());
-            SwingUtilities.invokeLater(() -> {
-                likeButton.setSelected(!likeButton.isSelected());
-                JOptionPane.showMessageDialog(root, "发送点赞请求异常: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-            });
-        }
-    }
-    
-    /**
-     * 显示创建帖子对话框
-     */
-    private void showCreateThreadDialog() {
-        if (currentUser == null) {
-            showToastMessage("请先登录", false);
-            return;
-        }
-        
-        // 确保有论坛分类数据
-        if (sections == null || sections.isEmpty()) {
-            // 如果没有分类数据，先获取
-            fetchSectionsFromServer();
-            showToastMessage("正在加载论坛分类，请稍后重试", false);
-            return;
-        }
-        
-        // 显示创建帖子对话框
-        Window window = SwingUtilities.getWindowAncestor(root);
-        Frame parentFrame = null;
-        if (window instanceof Frame) {
-            parentFrame = (Frame) window;
-        } else if (window instanceof Dialog) {
-            parentFrame = (Frame) ((Dialog) window).getParent();
-        }
-        
-        ThreadVO newThread = CreateThreadDialog.showCreateThreadDialog(
-            parentFrame, sections);
-        
-        if (newThread != null) {
-            // 设置作者ID
-            newThread.setAuthorId(currentUser.getUserId());
-            newThread.setAuthorName(currentUser.getName());
-            newThread.setAuthorLoginId(currentUser.getLoginId());
-            
-            // 发送创建帖子请求
-            createThreadOnServer(newThread);
-        }
-    }
-    
-    /**
-     * 发送创建帖子请求到服务器
-     */
-    private void createThreadOnServer(ThreadVO newThread) {
-        client.net.ServerConnection conn = this.connectionRef;
-        if (conn == null || !conn.isConnected()) {
-            showToastMessage("未连接到服务器", false);
-            return;
-        }
-        
-        // 设置消息监听器
-        conn.setMessageListener(common.protocol.MessageType.CREATE_THREAD_SUCCESS, new client.net.ServerConnection.MessageListener() {
-            @Override
-            public void onMessageReceived(common.protocol.Message message) {
-                SwingUtilities.invokeLater(() -> {
-                    showToastMessage("帖子发布成功！", true);
-                    // 刷新帖子列表
-                    fetchThreadsFromServer();
-                });
-                try {
-                    conn.removeMessageListener(common.protocol.MessageType.CREATE_THREAD_SUCCESS);
-                } catch (Exception ignore) {}
-            }
-        });
-        
-        // 发送创建帖子请求
-        boolean sent = conn.sendMessage(new common.protocol.Message(
-            common.protocol.MessageType.CREATE_THREAD_REQUEST, newThread));
-        
-        if (!sent) {
-            showToastMessage("发送发布请求失败", false);
-        }
-    }
-    
-    /**
-     * 显示右上角提示消息
-     * @param message 提示消息内容
-     * @param isSuccess true表示成功消息，false表示错误消息
-     */
-    private void showToastMessage(String message, boolean isSuccess) {
-        // 创建提示面板
-        JPanel toastPanel = new JPanel(new BorderLayout());
-        toastPanel.setBackground(isSuccess ? new Color(34, 197, 94) : new Color(239, 68, 68)); // 绿色成功，红色错误
-        toastPanel.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
-        
-        // 添加图标和文字
-        JLabel messageLabel = new JLabel(message);
-        messageLabel.setForeground(Color.WHITE);
-        messageLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD, 14f));
-        
-        // 添加成功/错误图标
-        String iconText = isSuccess ? "✓" : "✗";
-        JLabel iconLabel = new JLabel(iconText);
-        iconLabel.setForeground(Color.WHITE);
-        iconLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD, 16f));
-        iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 8));
-        
-        JPanel contentPanel = new JPanel(new BorderLayout());
-        contentPanel.setOpaque(false);
-        contentPanel.add(iconLabel, BorderLayout.WEST);
-        contentPanel.add(messageLabel, BorderLayout.CENTER);
-        
-        toastPanel.add(contentPanel, BorderLayout.CENTER);
-        
-        // 设置提示面板的样式
-        toastPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(0, 0, 0, 20), 1),
-            BorderFactory.createEmptyBorder(0, 0, 0, 0)
-        ));
-        
-        // 创建弹出窗口
-        JWindow toastWindow = new JWindow();
-        toastWindow.setLayout(new BorderLayout());
-        toastWindow.add(toastPanel, BorderLayout.CENTER);
-        toastWindow.setAlwaysOnTop(true);
-        toastWindow.setFocusableWindowState(false);
-        
-        // 计算位置（右上角）
-        Point rootLocation = root.getLocationOnScreen();
-        Dimension rootSize = root.getSize();
-        Dimension toastSize = toastPanel.getPreferredSize();
-        
-        int x = rootLocation.x + rootSize.width - toastSize.width - 20;
-        int y = rootLocation.y + 20;
-        
-        toastWindow.setLocation(x, y);
-        toastWindow.setSize(toastSize);
-        
-        // 显示提示
-        toastWindow.setVisible(true);
-        
-        // 3秒后自动消失
-        Timer timer = new Timer(3000, e -> {
-            toastWindow.dispose();
-        });
-        timer.setRepeats(false);
-        timer.start();
-    }
-    
-    /**
-     * 执行搜索操作
-     * @param keyword 搜索关键词
-     */
-    private void performSearch(String keyword) {
-        System.out.println("[Forum][UI] ========== 执行搜索操作 ==========");
-        if (keyword == null || keyword.trim().isEmpty()) {
-            System.out.println("[Forum][UI] 搜索关键词为空，取消搜索");
-            return;
-        }
-        
-        keyword = keyword.trim();
-        System.out.println("[Forum][UI] 开始搜索，关键词: '" + keyword + "'");
-        
-        // 进入搜索模式
-        isSearchMode = true;
-        currentSearchKeyword = keyword;
-        System.out.println("[Forum][UI] 已进入搜索模式，当前关键词: " + currentSearchKeyword);
-        
-        // 发送搜索请求到服务器
-        client.net.ServerConnection conn = this.connectionRef;
-        if (conn == null) {
-            System.out.println("[Forum][UI] 服务器连接为null");
-            showToastMessage("未连接到服务器", false);
-            return;
-        }
-        if (!conn.isConnected()) {
-            System.out.println("[Forum][UI] 服务器连接已断开");
-            showToastMessage("未连接到服务器", false);
-            return;
-        }
-        System.out.println("[Forum][UI] 服务器连接正常，准备发送搜索请求");
-        
-        // 设置搜索结果监听器
-        conn.setMessageListener(common.protocol.MessageType.SEARCH_THREADS_SUCCESS, new client.net.ServerConnection.MessageListener() {
-            @Override
-            public void onMessageReceived(common.protocol.Message message) {
-                SwingUtilities.invokeLater(() -> {
-                    handleSearchResults(message);
-                });
-                try {
-                    conn.removeMessageListener(common.protocol.MessageType.SEARCH_THREADS_SUCCESS);
-                } catch (Exception ignore) {}
-            }
-        });
-        
-        // 设置搜索失败监听器
-        conn.setMessageListener(common.protocol.MessageType.SEARCH_THREADS_FAIL, new client.net.ServerConnection.MessageListener() {
-            @Override
-            public void onMessageReceived(common.protocol.Message message) {
-                SwingUtilities.invokeLater(() -> {
-                    showToastMessage("搜索失败: " + message.getMessage(), false);
-                    isSearchMode = false;
-                    currentSearchKeyword = null;
-                });
-                try {
-                    conn.removeMessageListener(common.protocol.MessageType.SEARCH_THREADS_FAIL);
-                } catch (Exception ignore) {}
-            }
-        });
-        
-        // 发送搜索请求
-        System.out.println("[Forum][UI] 创建搜索请求消息，关键词: '" + keyword + "'");
-        common.protocol.Message searchRequest = new common.protocol.Message(
-            common.protocol.MessageType.SEARCH_THREADS_REQUEST, keyword);
-        System.out.println("[Forum][UI] 搜索请求消息创建完成，类型: " + searchRequest.getType() + ", 数据: " + searchRequest.getData());
-        
-        boolean sent = conn.sendMessage(searchRequest);
-        System.out.println("[Forum][UI] 搜索请求发送结果: " + sent);
-        
-        if (!sent) {
-            System.out.println("[Forum][UI] 发送搜索请求失败，退出搜索模式");
-            showToastMessage("发送搜索请求失败", false);
-            isSearchMode = false;
-            currentSearchKeyword = null;
-        } else {
-            System.out.println("[Forum][UI] 搜索请求发送成功，等待服务器响应");
-        }
-    }
-    
-    /**
-     * 处理搜索结果
-     * @param message 服务器返回的搜索结果消息
-     */
-    @SuppressWarnings("unchecked")
-    private void handleSearchResults(common.protocol.Message message) {
-        System.out.println("[Forum][UI] ========== 处理搜索结果 ==========");
-        try {
-            System.out.println("[Forum][UI] 收到搜索结果消息，类型: " + message.getType() + ", 状态码: " + message.getStatusCode());
-            System.out.println("[Forum][UI] 搜索结果消息内容: " + message.getMessage());
-            
-            searchResults = (List<ThreadVO>) message.getData();
-            if (searchResults == null) {
-                System.out.println("[Forum][UI] 搜索结果数据为null，创建空列表");
-                searchResults = new ArrayList<>();
-            }
-            
-            System.out.println("[Forum][UI] 收到搜索结果: " + searchResults.size() + " 个帖子");
-            
-            // 打印前几个搜索结果的详细信息
-            for (int i = 0; i < Math.min(3, searchResults.size()); i++) {
-                ThreadVO thread = searchResults.get(i);
-                System.out.println("[Forum][UI] 搜索结果[" + i + "]: ID=" + thread.getThreadId() + 
-                                 ", 标题=" + thread.getTitle() + ", 作者=" + thread.getAuthorName());
-            }
-            
-            // 更新帖子列表显示搜索结果
-            updateThreadListWithSearchResults();
-            
-            System.out.println("[Forum][UI] 搜索结果处理完成");
-            
-        } catch (Exception e) {
-            System.err.println("[Forum][UI] 处理搜索结果失败: " + e.getMessage());
-            e.printStackTrace();
-            showToastMessage("处理搜索结果失败", false);
-            isSearchMode = false;
-            currentSearchKeyword = null;
-        }
-    }
-    
-    /**
-     * 更新帖子列表显示搜索结果
-     */
-    private void updateThreadListWithSearchResults() {
-        if (threadScrollPane == null) {
-            return;
-        }
-        
-        // 获取帖子列表容器（滚动区域内的面板）
-        JPanel threadItemsPanel = (JPanel) threadScrollPane.getViewport().getView();
-        if (threadItemsPanel == null) {
-            return;
-        }
-        
-        // 清空当前帖子列表容器
-        threadItemsPanel.removeAll();
-        
-        if (searchResults.isEmpty()) {
-            // 显示无搜索结果的提示
-            JPanel noResultPanel = createNoResultPanel();
-            threadItemsPanel.add(noResultPanel);
-        } else {
-            // 显示搜索结果 - 使用与主列表相同的样式
-            System.out.println("[Forum][UI] 显示搜索结果，数量: " + searchResults.size());
-            for (ThreadVO thread : searchResults) {
-                JPanel threadCard = createThreadItem(thread); // 使用与主列表相同的创建方法
-                threadItemsPanel.add(threadCard);
-                threadItemsPanel.add(Box.createVerticalStrut(12)); // 添加间距
-            }
-        }
-        
-        // 刷新UI
-        threadItemsPanel.revalidate();
-        threadItemsPanel.repaint();
-        
-        // 同步搜索结果中每个子项的宽度，确保与主列表样式一致
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override 
-            public void run() { 
-                syncThreadItemsWidth(); 
-            }
-        });
-    }
-    
-    
-    /**
-     * 创建无搜索结果的提示面板
-     */
-    private JPanel createNoResultPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBackground(new Color(248, 249, 250)); // 与帖子列表背景一致
-        panel.setBorder(BorderFactory.createEmptyBorder(40, 20, 40, 20));
-        
-        // 设置左对齐并限制最大宽度
-        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-        
-        // 创建图标和文字
-        JLabel iconLabel = new JLabel("🔍");
-        iconLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 36)); // 稍微缩小图标
-        iconLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
-        JLabel titleLabel = new JLabel("没有搜索到结果");
-        titleLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD, 16f)); // 稍微缩小字体
-        titleLabel.setForeground(new Color(107, 114, 128));
-        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
-        JLabel messageLabel = new JLabel("试试其他关键词，或点击刷新查看所有帖子");
-        messageLabel.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
-        messageLabel.setForeground(new Color(156, 163, 175));
-        messageLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        messageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
-        JPanel contentPanel = new JPanel();
-        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setOpaque(false);
-        contentPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(iconLabel);
-        contentPanel.add(Box.createVerticalStrut(12));
-        contentPanel.add(titleLabel);
-        contentPanel.add(Box.createVerticalStrut(6));
-        contentPanel.add(messageLabel);
-        
-        panel.add(contentPanel, BorderLayout.CENTER);
-        return panel;
-    }
-    
-    /**
-     * 退出搜索模式，恢复正常帖子列表
-     */
-    private void exitSearchMode() {
-        isSearchMode = false;
-        currentSearchKeyword = null;
-        searchResults.clear();
-        
-        // 清空搜索框文本
-        if (searchFieldRef != null) {
-            searchFieldRef.setText("搜索内容...");
-            searchFieldRef.setForeground(new Color(156, 163, 175)); // 恢复占位符颜色
-        }
-        
-        System.out.println("[Forum][UI] 退出搜索模式，重新加载所有帖子");
-    }
-    
-    
-    
 }
