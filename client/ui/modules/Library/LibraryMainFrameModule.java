@@ -1,4 +1,4 @@
-package client.ui.modules;
+package client.ui.modules.Library;
 
 import client.controller.LibraryController;
 import common.vo.UserVO;
@@ -129,7 +129,7 @@ public class LibraryMainFrameModule extends JFrame {
 
             contentPanel.add(libraryBookSearchModule, "search");
             contentPanel.add(libraryBorrowHistoryModule, "history");
-            //contentPanel.add(libraryDocumentSearchModule, "docSear
+            //contentPanel.add(libraryDocumentSearchModule, "docSearch");
             libraryDocumentSearchModule = new LibraryDocumentSearchModule(controller);
 
             contentPanel.add(libraryBookSearchModule, "search");
@@ -148,7 +148,7 @@ public class LibraryMainFrameModule extends JFrame {
             });
 
             btnHistory.addActionListener(e -> {
-                libraryBorrowHistoryModule.refreshTable();
+                libraryBorrowHistoryModule.refreshData();
                 cardLayout.show(contentPanel, "history");
                 titleLabel.setText("借阅记录");
             });
