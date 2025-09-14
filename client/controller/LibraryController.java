@@ -165,7 +165,6 @@ public class LibraryController {
         params.put("category", category);
         params.put("startYear", startYear);
         params.put("endYear", endYear);
-
         Message req = new Message(MessageType.SEARCH_DOCUMENTS_REQUEST, StatusCode.SUCCESS, params);
         Message resp = sendRequest(req);
         if (resp != null && resp.getStatusCode() == StatusCode.SUCCESS) {
@@ -229,6 +228,5 @@ public class LibraryController {
         }
         return Collections.emptyList();
     }
-
 
 }
