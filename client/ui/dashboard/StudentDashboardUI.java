@@ -7,6 +7,7 @@ import client.ui.dashboard.layout.SideNav;
 import client.ui.dashboard.titlebar.AppTitleBar;
 import client.ui.integration.ModuleKeys;
 import client.ui.integration.ModuleRegistry;
+import client.ui.modules.Library.LibraryModule;
 import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 
@@ -119,15 +120,16 @@ public class StudentDashboardUI extends JFrame {
     }
 
     private void initModules() {
-        // 学生专属首页
-        client.ui.modules.StudentHomeModule.registerTo(ModuleRegistry.class);
-        // 注册学生版论坛与资源中心
+        // 注册学生版论坛
         ModuleRegistry.register(new client.ui.modules.StudentForumModule());
-        ModuleRegistry.register(new client.ui.modules.StudentResourceCenterModule());
 
+        // 课程管理
+        client.ui.modules.StudentCourseModule.registerTo(ModuleRegistry.class);
+
+        // 图书馆
         ModuleRegistry.register(
-                new client.ui.modules.LibraryModule(
-                        ModuleKeys.STUDENT_LIBRARY, "图书馆", null
+                new LibraryModule(
+                        ModuleKeys.STUDENT_LIBRARY, "图书馆", "resources/icons/LibraryIcon.png"
                 )
         );
 
@@ -137,11 +139,12 @@ public class StudentDashboardUI extends JFrame {
             Icon icon = loadIcon(m.getIconPath());
             sideNav.addItem(m.getKey(), m.getDisplayName(), icon);
         }
-        contentHost.showPage(client.ui.integration.ModuleKeys.STUDENT_HOME);
-        // 设置侧边导航默认选中首页
-        sideNav.selectKey(client.ui.integration.ModuleKeys.STUDENT_HOME);
+        // 默认显示论坛模块
+        String defaultModuleKey = "student_forum";
+        contentHost.showPage(defaultModuleKey);
+        sideNav.selectKey(defaultModuleKey);
         // 初始化 AppBar 显示当前模块名
-        IModuleView home = ModuleRegistry.findByKey(client.ui.integration.ModuleKeys.STUDENT_HOME);
+        IModuleView home = ModuleRegistry.findByKey(defaultModuleKey);
         if (home != null) appBar.setModuleName(home.getDisplayName());
     }
 

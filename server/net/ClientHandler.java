@@ -10,6 +10,7 @@ import common.vo.BookVO;
 import common.vo.BorrowRecordVO;
 import server.service.UserService;
 import server.dao.impl.LibraryServiceImpl;
+import server.service.ForumService;
 
 import java.util.List;
 
@@ -43,6 +44,7 @@ public class ClientHandler implements Runnable {
             // 创建输入输出流
             this.objectOut = new ObjectOutputStream(clientSocket.getOutputStream());
             this.objectIn = new ObjectInputStream(clientSocket.getInputStream());
+
         } catch (IOException e) {
             System.err.println("创建客户端流失败: " + e.getMessage());
             disconnect();
@@ -133,6 +135,51 @@ public class ClientHandler implements Runnable {
                     handleGetStudentInfo(request);
                     break;
                     
+                case GET_TEACHER_INFO_REQUEST:
+                    handleGetTeacherInfo(request);
+                    break;
+                    
+                // 课程模块
+                case GET_ALL_COURSES_REQUEST:
+                    System.out.println("[Course][Server] 收到请求: GET_ALL_COURSES_REQUEST");
+                    handleGetAllCourses(request);
+                    break;
+                    
+                case UPDATE_COURSE_REQUEST:
+                    System.out.println("[Course][Server] 收到请求: UPDATE_COURSE_REQUEST");
+                    handleUpdateCourse(request);
+                    break;
+                    
+                case DELETE_COURSE_REQUEST:
+                    System.out.println("[Course][Server] 收到请求: DELETE_COURSE_REQUEST");
+                    handleDeleteCourse(request);
+                    break;
+                    
+                case GET_ALL_ENROLLMENTS_REQUEST:
+                    System.out.println("[Enrollment][Server] 收到请求: GET_ALL_ENROLLMENTS_REQUEST");
+                    handleGetAllEnrollments(request);
+                    break;
+                    
+                case GET_STUDENT_ENROLLMENTS_REQUEST:
+                    System.out.println("[Enrollment][Server] 收到请求: GET_STUDENT_ENROLLMENTS_REQUEST");
+                    handleGetStudentEnrollments(request);
+                    break;
+                    
+                case ENROLL_COURSE_REQUEST:
+                    System.out.println("[Enrollment][Server] 收到请求: ENROLL_COURSE_REQUEST");
+                    handleEnrollCourse(request);
+                    break;
+                    
+                case DROP_COURSE_REQUEST:
+                    System.out.println("[Enrollment][Server] 收到请求: DROP_COURSE_REQUEST");
+                    handleDropCourse(request);
+                    break;
+                    
+                case GET_ENROLLMENTS_BY_COURSE_REQUEST:
+                    System.out.println("[Enrollment][Server] 收到请求: GET_ENROLLMENTS_BY_COURSE_REQUEST");
+                    handleGetEnrollmentsByCourse(request);
+                    break;
+                    
                 case HEARTBEAT:
                     handleHeartbeat(request);
                     break;
@@ -165,6 +212,79 @@ public class ClientHandler implements Runnable {
                 case GET_BOOK_BY_ID_REQUEST:
                     handleGetBookById(request);
                     break;
+                case SEARCH_DOCUMENTS_REQUEST:
+                    handleSearchDocuments(request);
+                    break;
+                case GET_DOCUMENT_REQUEST:
+                    handleGetDocument(request);
+                    break;
+                case DOWNLOAD_DOCUMENT_REQUEST:
+                    handleDownloadDocument(request);
+                    break;
+                case UPLOAD_DOCUMENT_REQUEST:
+                    handleUploadDocument(request);
+                    break;
+                case UPDATE_DOCUMENT_REQUEST:
+                    handleUpdateDocument(request);
+                    break;
+                case DELETE_DOCUMENT_REQUEST:
+                    handleDeleteDocument(request);
+                    break;
+                case SEARCH_BORROW_HISTORY_REQUEST:
+                    handleSearchBorrowHistory(request);
+                    break;
+                // 论坛模块
+                case GET_ALL_THREADS_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: GET_ALL_THREADS_REQUEST");
+                    handleGetAllThreads(request);
+                    break;
+                case GET_FORUM_SECTIONS_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: GET_FORUM_SECTIONS_REQUEST");
+                    handleGetForumSections(request);
+                    break;
+                case GET_POSTS_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: GET_POSTS_REQUEST, threadId=" + request.getData());
+                    handleGetPosts(request);
+                    break;
+                case CREATE_THREAD_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: CREATE_THREAD_REQUEST");
+                    handleCreateThread(request);
+                    break;
+                case CREATE_POST_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: CREATE_POST_REQUEST");
+                    handleCreatePost(request);
+                    break;
+                case TOGGLE_THREAD_LIKE_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: TOGGLE_THREAD_LIKE_REQUEST");
+                    handleToggleThreadLike(request);
+                    break;
+                case TOGGLE_POST_LIKE_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: TOGGLE_POST_LIKE_REQUEST");
+                    handleTogglePostLike(request);
+                    break;
+                case SEARCH_THREADS_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: SEARCH_THREADS_REQUEST");
+                    handleSearchThreads(request);
+                    break;
+                case DELETE_THREAD_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: DELETE_THREAD_REQUEST");
+                    handleDeleteThread(request);
+                    break;
+                case SET_THREAD_ESSENCE_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: SET_THREAD_ESSENCE_REQUEST");
+                    handleSetThreadEssence(request);
+                    break;
+                case CREATE_SUB_REPLY_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: CREATE_SUB_REPLY_REQUEST");
+                    handleCreateSubReply(request);
+                    break;
+                case CREATE_QUOTE_REPLY_REQUEST:
+                    System.out.println("[Forum][Server] 收到请求: CREATE_QUOTE_REPLY_REQUEST");
+                    handleCreateQuoteReply(request);
+                    break;
+
+
+
 
 
                 default:
@@ -335,7 +455,508 @@ public class ClientHandler implements Runnable {
         }
     }
 
+    private void handleSearchBorrowHistory(Message request) {
+        try {
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> params = (java.util.Map<String, Object>) request.getData();
+            Integer userId = (Integer) params.get("userId");
+            String keyword = (String) params.get("keyword");
+
+            LibraryServiceImpl libraryService = new server.dao.impl.LibraryServiceImpl();
+            List<BorrowRecordVO> records = libraryService.searchBorrowHistory(userId, keyword);
+
+            Message response = new Message(
+                    MessageType.SEARCH_BORROW_HISTORY_SUCCESS,
+                    StatusCode.SUCCESS,
+                    records,
+                    "搜索借阅记录成功"
+            );
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("搜索借阅历史失败: " + e.getMessage());
+        }
+    }
+
+
+    // ================= 文献模块 =================
+
+    private void handleSearchDocuments(Message request) {
+        try {
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> params = (java.util.Map<String, Object>) request.getData();
+            String keyword = (String) params.get("keyword");
+            String subject = (String) params.get("subject");
+            String category = (String) params.get("category");
+            Integer startYear = (Integer) params.get("startYear");
+            Integer endYear = (Integer) params.get("endYear");
+
+            server.service.LibraryService libraryService = new server.dao.impl.LibraryServiceImpl();
+            java.util.List<common.vo.DocumentVO> docs =
+                    libraryService.searchDocuments(keyword, subject, category, startYear, endYear);
+
+            Message response = new Message(MessageType.SEARCH_DOCUMENTS_RESPONSE,
+                    StatusCode.SUCCESS, docs, "搜索文献成功");
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("搜索文献失败: " + e.getMessage());
+        }
+    }
+
+    private void handleGetDocument(Message request) {
+        try {
+            Integer docId = (Integer) request.getData();
+            server.service.LibraryService libraryService = new server.dao.impl.LibraryServiceImpl();
+            common.vo.DocumentVO doc = libraryService.getDocumentById(docId);
+
+            Message response;
+            if (doc != null) {
+                response = new Message(MessageType.GET_DOCUMENT_RESPONSE,
+                        StatusCode.SUCCESS, doc, "获取文献成功");
+            } else {
+                response = new Message(MessageType.GET_DOCUMENT_RESPONSE,
+                        StatusCode.NOT_FOUND, null, "文献不存在");
+            }
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("获取文献失败: " + e.getMessage());
+        }
+    }
+
+    private void handleDownloadDocument(Message request) {
+        try {
+            Integer docId = (Integer) request.getData();
+            server.service.LibraryService libraryService = new server.dao.impl.LibraryServiceImpl();
+            byte[] fileData = libraryService.downloadDocument(docId);
+
+            Message response;
+            if (fileData != null) {
+                response = new Message(MessageType.DOWNLOAD_DOCUMENT_RESPONSE,
+                        StatusCode.SUCCESS, fileData, "下载成功");
+            } else {
+                response = new Message(MessageType.DOWNLOAD_DOCUMENT_RESPONSE,
+                        StatusCode.NOT_FOUND, null, "文件不存在");
+            }
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("下载文献失败: " + e.getMessage());
+        }
+    }
+
+    private void handleUploadDocument(Message request) {
+        try {
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> uploadData = (java.util.Map<String, Object>) request.getData();
+            common.vo.DocumentVO doc = (common.vo.DocumentVO) uploadData.get("doc");
+            byte[] fileBytes = (byte[]) uploadData.get("file");
+
+            boolean ok = false;
+            server.service.LibraryService libraryService = new server.dao.impl.LibraryServiceImpl();
+            try (java.io.InputStream is = new java.io.ByteArrayInputStream(fileBytes)) {
+                ok = libraryService.uploadDocument(doc, is);
+            }
+
+            Message response = new Message(MessageType.UPLOAD_DOCUMENT_RESPONSE,
+                    ok ? StatusCode.SUCCESS : StatusCode.BAD_REQUEST, ok, ok ? "上传成功" : "上传失败");
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("上传文献失败: " + e.getMessage());
+        }
+    }
+
+    private void handleUpdateDocument(Message request) {
+        try {
+            common.vo.DocumentVO doc = (common.vo.DocumentVO) request.getData();
+            server.service.LibraryService libraryService = new server.dao.impl.LibraryServiceImpl();
+            boolean ok = libraryService.updateDocument(doc);
+
+            Message response = new Message(MessageType.UPDATE_DOCUMENT_RESPONSE,
+                    ok ? StatusCode.SUCCESS : StatusCode.BAD_REQUEST, ok, ok ? "更新成功" : "更新失败");
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("更新文献失败: " + e.getMessage());
+        }
+    }
+
+    private void handleDeleteDocument(Message request) {
+        try {
+            Integer docId = (Integer) request.getData();
+            server.service.LibraryService libraryService = new server.dao.impl.LibraryServiceImpl();
+            boolean ok = libraryService.deleteDocument(docId);
+
+            Message response = new Message(MessageType.DELETE_DOCUMENT_RESPONSE,
+                    ok ? StatusCode.SUCCESS : StatusCode.BAD_REQUEST, ok, ok ? "删除成功" : "删除失败");
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("删除文献失败: " + e.getMessage());
+        }
+    }
+
+
     //==========================================================================================
+
+    // ================= 论坛模块 =================
+
+    private void handleGetAllThreads(Message request) {
+        try {
+            System.out.println("[Forum][Server] 开始查询所有主题");
+            ForumService forumService = new ForumService();
+            java.util.List<common.vo.ThreadVO> threads = forumService.getAllThreads(currentUserId);
+            System.out.println("[Forum][Server] 查询完成，返回条数=" + (threads != null ? threads.size() : -1));
+            Message response = new Message(MessageType.GET_ALL_THREADS_SUCCESS, StatusCode.SUCCESS, threads, "获取主题成功");
+            sendMessage(response);
+            System.out.println("[Forum][Server] 已发送响应: GET_ALL_THREADS_SUCCESS");
+        } catch (Exception e) {
+            System.err.println("处理获取主题请求时发生异常: " + e.getMessage());
+            sendErrorMessage("获取主题失败: " + e.getMessage());
+        }
+    }
+
+    private void handleGetForumSections(Message request) {
+        try {
+            System.out.println("[Forum][Server] 开始查询分区列表");
+            ForumService forumService = new ForumService();
+            java.util.List<common.vo.ForumSectionVO> sections = forumService.getAllSections();
+            System.out.println("[Forum][Server] 查询分区完成，返回条数=" + (sections != null ? sections.size() : -1));
+            Message response = new Message(MessageType.GET_FORUM_SECTIONS_SUCCESS, StatusCode.SUCCESS, sections, "获取分区成功");
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("获取分区失败: " + e.getMessage());
+        }
+    }
+
+    private void handleSearchThreads(Message request) {
+        try {
+            String keyword = (String) request.getData();
+            System.out.println("[Forum][Server] 开始搜索帖子，关键词: " + keyword);
+            
+            if (keyword == null || keyword.trim().isEmpty()) {
+                Message response = new Message(MessageType.SEARCH_THREADS_SUCCESS, StatusCode.SUCCESS, new java.util.ArrayList<>(), "搜索关键词为空");
+                sendMessage(response);
+                return;
+            }
+            
+            ForumService forumService = new ForumService();
+            java.util.List<common.vo.ThreadVO> threads = forumService.searchThreads(keyword, currentUserId);
+            System.out.println("[Forum][Server] 搜索完成，返回结果数=" + (threads != null ? threads.size() : -1));
+            
+            String message = threads != null && threads.size() > 0 ? 
+                "搜索成功，找到 " + threads.size() + " 个结果" : "未找到匹配的帖子";
+            
+            Message response = new Message(MessageType.SEARCH_THREADS_SUCCESS, StatusCode.SUCCESS, threads, message);
+            sendMessage(response);
+            System.out.println("[Forum][Server] 已发送搜索响应: SEARCH_THREADS_SUCCESS");
+        } catch (Exception e) {
+            System.err.println("处理搜索帖子请求时发生异常: " + e.getMessage());
+            e.printStackTrace();
+            Message response = new Message(MessageType.SEARCH_THREADS_FAIL, StatusCode.INTERNAL_ERROR, null, "搜索失败: " + e.getMessage());
+            sendMessage(response);
+        }
+    }
+
+    private void handleGetPosts(Message request) {
+        try {
+            Integer threadId = (Integer) request.getData();
+            if (threadId == null) {
+                sendErrorMessage("缺少threadId");
+                return;
+            }
+            System.out.println("[Forum][Server] 开始查询回复，threadId=" + threadId);
+            ForumService forumService = new ForumService();
+            java.util.List<common.vo.PostVO> posts = forumService.getPostsByThreadId(threadId, currentUserId);
+            System.out.println("[Forum][Server] 查询回复完成，返回条数=" + (posts != null ? posts.size() : -1));
+            Message response = new Message(MessageType.GET_POSTS_SUCCESS, StatusCode.SUCCESS, posts, "获取回复成功");
+            sendMessage(response);
+        } catch (Exception e) {
+            sendErrorMessage("获取回复失败: " + e.getMessage());
+        }
+    }
+
+    private void handleCreateThread(Message request) {
+        try {
+            if (!isLoggedIn()) {
+                sendUnauthorizedMessage();
+                return;
+            }
+            common.vo.ThreadVO thread = (common.vo.ThreadVO) request.getData();
+            if (thread == null) {
+                sendErrorMessage("无效的主题数据");
+                return;
+            }
+            ForumService forumService = new ForumService();
+            Integer newId = forumService.createThread(thread, currentUserId);
+            if (newId != null) {
+                thread.setThreadId(newId);
+                Message response = new Message(MessageType.CREATE_THREAD_SUCCESS, StatusCode.CREATED, thread, "创建主题成功");
+                sendMessage(response);
+            } else {
+                Message response = new Message(MessageType.ERROR, StatusCode.INTERNAL_ERROR, null, "创建主题失败");
+                sendMessage(response);
+            }
+        } catch (Exception e) {
+            sendErrorMessage("创建主题异常: " + e.getMessage());
+        }
+    }
+
+    private void handleCreatePost(Message request) {
+        try {
+            if (!isLoggedIn()) {
+                sendUnauthorizedMessage();
+                return;
+            }
+            common.vo.PostVO post = (common.vo.PostVO) request.getData();
+            if (post == null || post.getThreadId() == null) {
+                sendErrorMessage("无效的回复数据");
+                return;
+            }
+            ForumService forumService = new ForumService();
+            Integer newId = forumService.createPost(post, currentUserId);
+            if (newId != null) {
+                post.setPostId(newId);
+                Message response = new Message(MessageType.CREATE_POST_SUCCESS, StatusCode.CREATED, post, "创建回复成功");
+                sendMessage(response);
+            } else {
+                Message response = new Message(MessageType.ERROR, StatusCode.INTERNAL_ERROR, null, "创建回复失败");
+                sendMessage(response);
+            }
+        } catch (Exception e) {
+            sendErrorMessage("创建回复异常: " + e.getMessage());
+        }
+    }
+    
+    private void handleToggleThreadLike(Message request) {
+        try {
+            if (!isLoggedIn()) {
+                sendUnauthorizedMessage();
+                return;
+            }
+            Integer threadId = (Integer) request.getData();
+            if (threadId == null) {
+                sendErrorMessage("缺少threadId");
+                return;
+            }
+            System.out.println("[Forum][Server] 处理主题点赞切换: threadId=" + threadId + ", userId=" + currentUserId);
+            ForumService forumService = new ForumService();
+            Boolean result = forumService.toggleThreadLike(threadId, currentUserId);
+            if (result != null) {
+                // 返回点赞结果和新的点赞数量
+                int newLikeCount = forumService.getThreadLikeCount(threadId);
+                System.out.println("[Forum][Server] 获取到新的点赞数量: " + newLikeCount + " for threadId=" + threadId);
+                
+                java.util.Map<String, Object> responseData = new java.util.HashMap<>();
+                responseData.put("isLiked", result);
+                responseData.put("likeCount", newLikeCount);
+                responseData.put("threadId", threadId);
+                
+                String message = result ? "点赞成功" : "取消点赞成功";
+                Message response = new Message(MessageType.TOGGLE_THREAD_LIKE_SUCCESS, StatusCode.SUCCESS, responseData, message);
+                sendMessage(response);
+                System.out.println("[Forum][Server] 主题点赞切换成功: " + message + ", 返回likeCount=" + newLikeCount);
+            } else {
+                sendErrorMessage("点赞操作失败");
+            }
+        } catch (Exception e) {
+            System.err.println("处理主题点赞异常: " + e.getMessage());
+            sendErrorMessage("点赞操作异常: " + e.getMessage());
+        }
+    }
+    
+    private void handleTogglePostLike(Message request) {
+        try {
+            if (!isLoggedIn()) {
+                sendUnauthorizedMessage();
+                return;
+            }
+            Integer postId = (Integer) request.getData();
+            if (postId == null) {
+                sendErrorMessage("缺少postId");
+                return;
+            }
+            System.out.println("[Forum][Server] 处理回复点赞切换: postId=" + postId + ", userId=" + currentUserId);
+            ForumService forumService = new ForumService();
+            Boolean result = forumService.togglePostLike(postId, currentUserId);
+            if (result != null) {
+                // 返回点赞结果和新的点赞数量
+                java.util.Map<String, Object> responseData = new java.util.HashMap<>();
+                responseData.put("isLiked", result);
+                responseData.put("likeCount", forumService.getPostLikeCount(postId));
+                responseData.put("postId", postId);
+                
+                String message = result ? "点赞成功" : "取消点赞成功";
+                Message response = new Message(MessageType.TOGGLE_POST_LIKE_SUCCESS, StatusCode.SUCCESS, responseData, message);
+                sendMessage(response);
+                System.out.println("[Forum][Server] 回复点赞切换成功: " + message);
+            } else {
+                sendErrorMessage("点赞操作失败");
+            }
+        } catch (Exception e) {
+            System.err.println("处理回复点赞异常: " + e.getMessage());
+            sendErrorMessage("点赞操作异常: " + e.getMessage());
+        }
+    }
+
+    private void handleCreateSubReply(Message request) {
+        try {
+            if (!isLoggedIn()) {
+                sendUnauthorizedMessage();
+                return;
+            }
+            
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> requestData = (java.util.Map<String, Object>) request.getData();
+            common.vo.PostVO post = (common.vo.PostVO) requestData.get("post");
+            Integer parentPostId = (Integer) requestData.get("parentPostId");
+            
+            if (post == null || parentPostId == null) {
+                sendErrorMessage("无效的子回复数据");
+                return;
+            }
+            
+            System.out.println("[Forum][Server] 处理创建子回复: parentPostId=" + parentPostId + ", userId=" + currentUserId);
+            ForumService forumService = new ForumService();
+            Integer newId = forumService.createSubReply(post, parentPostId, currentUserId);
+            
+            if (newId != null) {
+                post.setPostId(newId);
+                Message response = new Message(MessageType.CREATE_SUB_REPLY_SUCCESS, StatusCode.CREATED, post, "创建子回复成功");
+                sendMessage(response);
+                System.out.println("[Forum][Server] 子回复创建成功: postId=" + newId);
+            } else {
+                Message response = new Message(MessageType.ERROR, StatusCode.INTERNAL_ERROR, null, "创建子回复失败");
+                sendMessage(response);
+            }
+        } catch (Exception e) {
+            System.err.println("处理创建子回复异常: " + e.getMessage());
+            sendErrorMessage("创建子回复异常: " + e.getMessage());
+        }
+    }
+
+    private void handleCreateQuoteReply(Message request) {
+        try {
+            if (!isLoggedIn()) {
+                sendUnauthorizedMessage();
+                return;
+            }
+            
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> requestData = (java.util.Map<String, Object>) request.getData();
+            common.vo.PostVO post = (common.vo.PostVO) requestData.get("post");
+            Integer quotePostId = (Integer) requestData.get("quotePostId");
+            
+            if (post == null || quotePostId == null) {
+                sendErrorMessage("无效的引用回复数据");
+                return;
+            }
+            
+            System.out.println("[Forum][Server] 处理创建引用回复: quotePostId=" + quotePostId + ", userId=" + currentUserId);
+            ForumService forumService = new ForumService();
+            Integer newId = forumService.createQuoteReply(post, quotePostId, currentUserId);
+            
+            if (newId != null) {
+                post.setPostId(newId);
+                Message response = new Message(MessageType.CREATE_QUOTE_REPLY_SUCCESS, StatusCode.CREATED, post, "创建引用回复成功");
+                sendMessage(response);
+                System.out.println("[Forum][Server] 引用回复创建成功: postId=" + newId);
+            } else {
+                Message response = new Message(MessageType.ERROR, StatusCode.INTERNAL_ERROR, null, "创建引用回复失败");
+                sendMessage(response);
+            }
+        } catch (Exception e) {
+            System.err.println("处理创建引用回复异常: " + e.getMessage());
+            sendErrorMessage("创建引用回复异常: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 处理删除帖子请求
+     */
+    private void handleDeleteThread(Message request) {
+        try {
+            if (!isLoggedIn()) {
+                sendUnauthorizedMessage();
+                return;
+            }
+            
+            // 检查管理员权限
+            if (currentUser == null || currentUser.getRole() == null || currentUser.getRole() != 2) {
+                sendErrorMessage("权限不足，只有管理员可以删除帖子");
+                return;
+            }
+            
+            Integer threadId = (Integer) request.getData();
+            if (threadId == null) {
+                sendErrorMessage("缺少threadId");
+                return;
+            }
+            
+            System.out.println("[Forum][Server] 处理删除帖子: threadId=" + threadId + ", adminId=" + currentUserId);
+            ForumService forumService = new ForumService();
+            boolean result = forumService.deleteThread(threadId, currentUserId);
+            
+            if (result) {
+                Message response = new Message(MessageType.DELETE_THREAD_SUCCESS, StatusCode.SUCCESS, threadId, "删除帖子成功");
+                sendMessage(response);
+                System.out.println("[Forum][Server] 帖子删除成功: threadId=" + threadId);
+            } else {
+                Message response = new Message(MessageType.ERROR, StatusCode.INTERNAL_ERROR, null, "删除帖子失败");
+                sendMessage(response);
+                System.err.println("[Forum][Server] 帖子删除失败: threadId=" + threadId);
+            }
+        } catch (Exception e) {
+            System.err.println("处理删除帖子异常: " + e.getMessage());
+            sendErrorMessage("删除帖子异常: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 处理设置精华帖请求
+     */
+    private void handleSetThreadEssence(Message request) {
+        try {
+            if (!isLoggedIn()) {
+                sendUnauthorizedMessage();
+                return;
+            }
+            
+            // 检查管理员权限
+            if (currentUser == null || currentUser.getRole() == null || currentUser.getRole() != 2) {
+                sendErrorMessage("权限不足，只有管理员可以设置精华帖");
+                return;
+            }
+            
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> requestData = (java.util.Map<String, Object>) request.getData();
+            Integer threadId = (Integer) requestData.get("threadId");
+            Boolean isEssence = (Boolean) requestData.get("isEssence");
+            
+            if (threadId == null || isEssence == null) {
+                sendErrorMessage("缺少threadId或isEssence参数");
+                return;
+            }
+            
+            String action = isEssence ? "设为精华" : "取消精华";
+            System.out.println("[Forum][Server] 处理" + action + ": threadId=" + threadId + ", adminId=" + currentUserId);
+            
+            ForumService forumService = new ForumService();
+            boolean result = forumService.setThreadEssence(threadId, isEssence, currentUserId);
+            
+            if (result) {
+                java.util.Map<String, Object> responseData = new java.util.HashMap<>();
+                responseData.put("threadId", threadId);
+                responseData.put("isEssence", isEssence);
+                
+                Message response = new Message(MessageType.SET_THREAD_ESSENCE_SUCCESS, StatusCode.SUCCESS, responseData, action + "成功");
+                sendMessage(response);
+                System.out.println("[Forum][Server] " + action + "成功: threadId=" + threadId);
+            } else {
+                Message response = new Message(MessageType.ERROR, StatusCode.INTERNAL_ERROR, null, action + "失败");
+                sendMessage(response);
+                System.err.println("[Forum][Server] " + action + "失败: threadId=" + threadId);
+            }
+        } catch (Exception e) {
+            System.err.println("处理设置精华帖异常: " + e.getMessage());
+            sendErrorMessage("设置精华帖异常: " + e.getMessage());
+        }
+    }
 
     /**
      * 处理登录请求
@@ -538,6 +1159,61 @@ public class ClientHandler implements Runnable {
         }
     }
     
+    private void handleGetTeacherInfo(Message request) {
+        System.out.println("[DEBUG][ClientHandler] 收到GET_TEACHER_INFO_REQUEST请求");
+        
+        if (!isLoggedIn()) {
+            System.err.println("[DEBUG][ClientHandler] 用户未登录，拒绝请求");
+            sendUnauthorizedMessage();
+            return;
+        }
+        
+        System.out.println("[DEBUG][ClientHandler] 用户已登录，当前用户：userId=" + currentUserId + 
+            ", loginId=" + currentUser.getLoginId() + ", role=" + currentUser.getRoleName());
+        
+        // 检查当前用户是否为教师
+        if (!currentUser.isTeacher()) {
+            System.err.println("[DEBUG][ClientHandler] 当前用户非教师角色：role=" + currentUser.getRole());
+            sendErrorMessage("只有教师用户才能获取教师信息");
+            return;
+        }
+        
+        System.out.println("[DEBUG][ClientHandler] 用户角色验证通过，开始查询教师信息");
+        
+        // 获取教师详细信息
+        System.out.println("[DEBUG][ClientHandler] 准备查询教师信息，userId=" + currentUserId + ", loginId=" + currentUser.getLoginId());
+        
+        try {
+            server.service.TeacherService teacherService = new server.service.TeacherService();
+            System.out.println("[DEBUG][ClientHandler] TeacherService创建成功，调用getTeacherByUserId");
+            
+            TeacherVO teacher = teacherService.getTeacherByUserId(currentUserId);
+            System.out.println("[DEBUG][ClientHandler] 数据库查询完成，结果：" + (teacher != null ? "找到教师信息" : "未找到教师信息"));
+            
+            if (teacher != null) {
+                // 设置用户信息
+                teacher.setUser(currentUser);
+                System.out.println("[DEBUG][ClientHandler] 教师信息查询成功：姓名=" + teacher.getName() + 
+                    ", 学院=" + teacher.getDepartment() + ", 职称=" + teacher.getTitle() + ", 工号=" + teacher.getTeacherNo());
+                
+                Message response = new Message(MessageType.GET_TEACHER_INFO_SUCCESS, StatusCode.SUCCESS, teacher, "获取教师信息成功");
+                System.out.println("[DEBUG][ClientHandler] 准备发送成功响应");
+                sendMessage(response);
+                System.out.println("[DEBUG][ClientHandler] 成功响应已发送");
+            } else {
+                System.err.println("[DEBUG][ClientHandler] 教师信息查询结果为空，userId=" + currentUserId);
+                Message response = new Message(MessageType.GET_TEACHER_INFO_FAIL, StatusCode.NOT_FOUND, null, "教师信息不存在");
+                System.out.println("[DEBUG][ClientHandler] 准备发送失败响应");
+                sendMessage(response);
+                System.out.println("[DEBUG][ClientHandler] 失败响应已发送");
+            }
+        } catch (Exception e) {
+            System.err.println("[DEBUG][ClientHandler] 处理教师信息请求时发生异常：" + e.getMessage());
+            e.printStackTrace();
+            sendErrorMessage("服务器内部错误：" + e.getMessage());
+        }
+    }
+    
     /**
      * 处理更新用户信息请求
      */
@@ -707,6 +1383,282 @@ public class ClientHandler implements Runnable {
      */
     public UserVO getCurrentUser() {
         return currentUser;
+    }
+    
+    // ================= 课程模块 =================
+    
+    private void handleGetAllCourses(Message request) {
+        try {
+            System.out.println("[Course][Server] 开始查询所有课程");
+            server.service.CourseService courseService = new server.service.CourseService();
+            java.util.List<common.vo.CourseVO> courses = courseService.getAllCourses();
+            System.out.println("[Course][Server] 查询完成，返回条数=" + (courses != null ? courses.size() : -1));
+            Message response = new Message(MessageType.GET_ALL_COURSES_SUCCESS, StatusCode.SUCCESS, courses, "获取课程成功");
+            sendMessage(response);
+            System.out.println("[Course][Server] 已发送响应: GET_ALL_COURSES_SUCCESS");
+        } catch (Exception e) {
+            System.err.println("处理获取课程请求时发生异常: " + e.getMessage());
+            sendErrorMessage("获取课程失败: " + e.getMessage());
+        }
+    }
+    
+    private void handleGetAllEnrollments(Message request) {
+        try {
+            System.out.println("[Enrollment][Server] 开始查询所有选课记录");
+            server.service.EnrollmentService enrollmentService = new server.service.EnrollmentService();
+            java.util.List<common.vo.EnrollmentVO> enrollments = enrollmentService.getAllEnrollments();
+            System.out.println("[Enrollment][Server] 查询完成，返回条数=" + (enrollments != null ? enrollments.size() : -1));
+            Message response = new Message(MessageType.GET_ALL_ENROLLMENTS_SUCCESS, StatusCode.SUCCESS, enrollments, "获取选课记录成功");
+            sendMessage(response);
+            System.out.println("[Enrollment][Server] 已发送响应: GET_ALL_ENROLLMENTS_SUCCESS");
+        } catch (Exception e) {
+            System.err.println("处理获取选课记录请求时发生异常: " + e.getMessage());
+            sendErrorMessage("获取选课记录失败: " + e.getMessage());
+        }
+    }
+    
+    private void handleGetStudentEnrollments(Message request) {
+        try {
+            System.out.println("[Enrollment][Server] 开始查询学生选课记录");
+            
+            // 检查用户是否已登录
+            if (currentUser == null) {
+                sendErrorMessage("用户未登录");
+                return;
+            }
+            
+            // 获取学生ID
+            Integer studentId = null;
+            if (request.getData() instanceof Integer) {
+                studentId = (Integer) request.getData();
+            } else if (currentUser.getRole() == 0) { // 学生角色
+                // 如果是学生，通过用户ID查找学生ID
+                server.dao.StudentDAO studentDAO = new server.dao.impl.StudentDAOImpl();
+                common.vo.StudentVO student = studentDAO.findByUserId(currentUser.getUserId());
+                if (student != null) {
+                    studentId = student.getStudentId();
+                }
+            }
+            
+            if (studentId == null) {
+                sendErrorMessage("无法获取学生ID");
+                return;
+            }
+            
+            server.service.EnrollmentService enrollmentService = new server.service.EnrollmentService();
+            java.util.List<common.vo.EnrollmentVO> enrollments = enrollmentService.getEnrollmentsByStudentId(studentId);
+            System.out.println("[Enrollment][Server] 查询完成，返回条数=" + (enrollments != null ? enrollments.size() : -1));
+            Message response = new Message(MessageType.GET_STUDENT_ENROLLMENTS_SUCCESS, StatusCode.SUCCESS, enrollments, "获取学生选课记录成功");
+            sendMessage(response);
+            System.out.println("[Enrollment][Server] 已发送响应: GET_STUDENT_ENROLLMENTS_SUCCESS");
+        } catch (Exception e) {
+            System.err.println("处理获取学生选课记录请求时发生异常: " + e.getMessage());
+            sendErrorMessage("获取学生选课记录失败: " + e.getMessage());
+        }
+    }
+    
+    private void handleGetEnrollmentsByCourse(Message request) {
+        try {
+            System.out.println("[Enrollment][Server] 开始查询指定课程的选课记录");
+            
+            // 检查用户是否已登录
+            if (currentUser == null) {
+                sendErrorMessage("用户未登录");
+                return;
+            }
+            
+            // 获取课程代码
+            String courseCode = null;
+            if (request.getData() instanceof String) {
+                courseCode = (String) request.getData();
+            }
+            
+            if (courseCode == null || courseCode.trim().isEmpty()) {
+                sendErrorMessage("课程代码不能为空");
+                return;
+            }
+            
+            // 先根据课程代码获取课程ID
+            server.service.CourseService courseService = new server.service.CourseService();
+            common.vo.CourseVO course = courseService.getCourseByCode(courseCode);
+            if (course == null) {
+                sendErrorMessage("课程不存在");
+                return;
+            }
+            
+            // 获取该课程的所有选课记录
+            server.service.EnrollmentService enrollmentService = new server.service.EnrollmentService();
+            java.util.List<common.vo.EnrollmentVO> enrollments = enrollmentService.getStudentListByCourseId(course.getCourseId());
+            System.out.println("[Enrollment][Server] 查询完成，返回条数=" + (enrollments != null ? enrollments.size() : -1));
+            Message response = new Message(MessageType.GET_ENROLLMENTS_BY_COURSE_SUCCESS, StatusCode.SUCCESS, enrollments, "获取课程选课记录成功");
+            sendMessage(response);
+            System.out.println("[Enrollment][Server] 已发送响应: GET_ENROLLMENTS_BY_COURSE_SUCCESS");
+        } catch (Exception e) {
+            System.err.println("处理获取课程选课记录请求时发生异常: " + e.getMessage());
+            sendErrorMessage("获取课程选课记录失败: " + e.getMessage());
+        }
+    }
+    
+    private void handleUpdateCourse(Message request) {
+        try {
+            if (request.getData() instanceof common.vo.CourseVO) {
+                common.vo.CourseVO course = (common.vo.CourseVO) request.getData();
+                System.out.println("[Course][Server] 开始更新课程: " + course.getCourseName());
+                
+                server.service.CourseService courseService = new server.service.CourseService();
+                boolean success = courseService.updateCourse(course);
+                
+                if (success) {
+                    System.out.println("[Course][Server] 课程更新成功");
+                    Message response = new Message(MessageType.UPDATE_COURSE_SUCCESS, StatusCode.SUCCESS, course, "课程更新成功");
+                    sendMessage(response);
+                    System.out.println("[Course][Server] 已发送响应: UPDATE_COURSE_SUCCESS");
+                } else {
+                    System.err.println("[Course][Server] 课程更新失败");
+                    sendErrorMessage("课程更新失败");
+                }
+            } else {
+                System.err.println("[Course][Server] 无效的课程数据");
+                sendErrorMessage("无效的课程数据");
+            }
+        } catch (Exception e) {
+            System.err.println("处理更新课程请求时发生异常: " + e.getMessage());
+            sendErrorMessage("更新课程失败: " + e.getMessage());
+        }
+    }
+    
+    private void handleDeleteCourse(Message request) {
+        try {
+            if (request.getData() instanceof Integer) {
+                Integer courseId = (Integer) request.getData();
+                System.out.println("[Course][Server] 开始删除课程ID: " + courseId);
+                
+                server.service.CourseService courseService = new server.service.CourseService();
+                boolean success = courseService.deleteCourse(courseId);
+                
+                if (success) {
+                    System.out.println("[Course][Server] 课程删除成功");
+                    Message response = new Message(MessageType.DELETE_COURSE_SUCCESS, StatusCode.SUCCESS, courseId, "课程删除成功");
+                    sendMessage(response);
+                    System.out.println("[Course][Server] 已发送响应: DELETE_COURSE_SUCCESS");
+                } else {
+                    System.err.println("[Course][Server] 课程删除失败");
+                    sendErrorMessage("课程删除失败");
+                }
+            } else {
+                System.err.println("[Course][Server] 无效的课程ID");
+                sendErrorMessage("无效的课程ID");
+            }
+        } catch (Exception e) {
+            System.err.println("处理删除课程请求时发生异常: " + e.getMessage());
+            sendErrorMessage("删除课程失败: " + e.getMessage());
+        }
+    }
+    
+    private void handleEnrollCourse(Message request) {
+        try {
+            // 检查用户是否已登录
+            if (currentUser == null) {
+                sendErrorMessage("用户未登录");
+                return;
+            }
+            
+            // 检查用户是否为学生
+            if (currentUser.getRole() != 0) {
+                sendErrorMessage("只有学生可以选课");
+                return;
+            }
+            
+            // 获取课程ID
+            Integer courseId = null;
+            if (request.getData() instanceof Integer) {
+                courseId = (Integer) request.getData();
+            } else {
+                sendErrorMessage("无效的课程ID");
+                return;
+            }
+            
+            // 获取学生ID
+            server.dao.StudentDAO studentDAO = new server.dao.impl.StudentDAOImpl();
+            common.vo.StudentVO student = studentDAO.findByUserId(currentUser.getUserId());
+            if (student == null) {
+                sendErrorMessage("无法获取学生信息");
+                return;
+            }
+            
+            Integer studentId = student.getStudentId();
+            System.out.println("[Enrollment][Server] 学生 " + studentId + " 尝试选课 " + courseId);
+            
+            // 调用选课服务
+            server.service.EnrollmentService enrollmentService = new server.service.EnrollmentService();
+            boolean success = enrollmentService.enrollCourse(studentId, courseId);
+            
+            if (success) {
+                System.out.println("[Enrollment][Server] 选课成功");
+                Message response = new Message(MessageType.ENROLL_COURSE_SUCCESS, StatusCode.SUCCESS, courseId, "选课成功");
+                sendMessage(response);
+            } else {
+                System.out.println("[Enrollment][Server] 选课失败");
+                Message response = new Message(MessageType.ENROLL_COURSE_FAIL, StatusCode.BAD_REQUEST, null, "选课失败，可能已经选过该课程");
+                sendMessage(response);
+            }
+        } catch (Exception e) {
+            System.err.println("处理选课请求时发生异常: " + e.getMessage());
+            sendErrorMessage("选课失败: " + e.getMessage());
+        }
+    }
+    
+    private void handleDropCourse(Message request) {
+        try {
+            // 检查用户是否已登录
+            if (currentUser == null) {
+                sendErrorMessage("用户未登录");
+                return;
+            }
+            
+            // 检查用户是否为学生
+            if (currentUser.getRole() != 0) {
+                sendErrorMessage("只有学生可以退选");
+                return;
+            }
+            
+            // 获取课程ID
+            Integer courseId = null;
+            if (request.getData() instanceof Integer) {
+                courseId = (Integer) request.getData();
+            } else {
+                sendErrorMessage("无效的课程ID");
+                return;
+            }
+            
+            // 获取学生ID
+            server.dao.StudentDAO studentDAO = new server.dao.impl.StudentDAOImpl();
+            common.vo.StudentVO student = studentDAO.findByUserId(currentUser.getUserId());
+            if (student == null) {
+                sendErrorMessage("无法获取学生信息");
+                return;
+            }
+            
+            Integer studentId = student.getStudentId();
+            System.out.println("[Enrollment][Server] 学生 " + studentId + " 尝试退选课程 " + courseId);
+            
+            // 调用退选服务
+            server.service.EnrollmentService enrollmentService = new server.service.EnrollmentService();
+            boolean success = enrollmentService.dropCourse(studentId, courseId);
+            
+            if (success) {
+                System.out.println("[Enrollment][Server] 退选成功");
+                Message response = new Message(MessageType.DROP_COURSE_SUCCESS, StatusCode.SUCCESS, courseId, "退选成功");
+                sendMessage(response);
+            } else {
+                System.out.println("[Enrollment][Server] 退选失败");
+                Message response = new Message(MessageType.DROP_COURSE_FAIL, StatusCode.BAD_REQUEST, null, "退选失败，可能未选该课程");
+                sendMessage(response);
+            }
+        } catch (Exception e) {
+            System.err.println("处理退选请求时发生异常: " + e.getMessage());
+            sendErrorMessage("退选失败: " + e.getMessage());
+        }
     }
     
     /**

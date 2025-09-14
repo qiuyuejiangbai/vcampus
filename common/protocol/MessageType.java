@@ -40,6 +40,11 @@ public enum MessageType {
     GET_ALL_STUDENTS_REQUEST,   // 获取所有学生请求
     GET_ALL_STUDENTS_SUCCESS,   // 获取所有学生成功
     
+    // 教师管理模块
+    GET_TEACHER_INFO_REQUEST,   // 获取教师信息请求
+    GET_TEACHER_INFO_SUCCESS,   // 获取教师信息成功
+    GET_TEACHER_INFO_FAIL,      // 获取教师信息失败
+    
     // 教务管理模块
     GET_ALL_COURSES_REQUEST,    // 获取所有课程请求
     GET_ALL_COURSES_SUCCESS,    // 获取所有课程成功
@@ -61,6 +66,12 @@ public enum MessageType {
     UPDATE_GRADE_SUCCESS,       // 更新成绩成功
     GET_MY_COURSES_REQUEST,     // 获取我的课程请求
     GET_MY_COURSES_SUCCESS,     // 获取我的课程成功
+    GET_ALL_ENROLLMENTS_REQUEST, // 获取所有选课记录请求
+    GET_ALL_ENROLLMENTS_SUCCESS, // 获取所有选课记录成功
+    GET_STUDENT_ENROLLMENTS_REQUEST, // 获取学生选课记录请求
+    GET_STUDENT_ENROLLMENTS_SUCCESS, // 获取学生选课记录成功
+    GET_ENROLLMENTS_BY_COURSE_REQUEST, // 获取指定课程的选课记录请求
+    GET_ENROLLMENTS_BY_COURSE_SUCCESS, // 获取指定课程的选课记录成功
 
     // ================= 图书馆模块 =================
 
@@ -114,7 +125,31 @@ public enum MessageType {
     GET_BORROW_RECORDS_SUCCESS,   // 获取借阅记录成功
     GET_BORROW_RECORDS_FAIL,     // 获取借阅记录失败
 
- // ================= 商店模块 =================
+    // 借阅历史搜索
+    SEARCH_BORROW_HISTORY_REQUEST,   // 搜索借阅历史请求
+    SEARCH_BORROW_HISTORY_SUCCESS,   // 搜索借阅历史成功
+    SEARCH_BORROW_HISTORY_FAIL,      // 搜索借阅历史失败
+
+    // 文献检索
+    SEARCH_DOCUMENTS_REQUEST,
+    SEARCH_DOCUMENTS_RESPONSE,
+
+    GET_DOCUMENT_REQUEST,
+    GET_DOCUMENT_RESPONSE,
+
+    DOWNLOAD_DOCUMENT_REQUEST,
+    DOWNLOAD_DOCUMENT_RESPONSE,
+
+    UPLOAD_DOCUMENT_REQUEST,
+    UPLOAD_DOCUMENT_RESPONSE,
+
+    UPDATE_DOCUMENT_REQUEST,
+    UPDATE_DOCUMENT_RESPONSE,
+
+    DELETE_DOCUMENT_REQUEST,
+    DELETE_DOCUMENT_RESPONSE,
+
+    // ================= 商店模块 =================
 
     // 购物车管理
     CLEAR_CART_REQUEST,         // 清空购物车请求
@@ -230,16 +265,32 @@ public enum MessageType {
     // 论坛模块
     GET_ALL_THREADS_REQUEST,    // 获取所有主题请求
     GET_ALL_THREADS_SUCCESS,    // 获取所有主题成功
+    GET_ALL_THREADS_FAIL,       // 获取所有主题失败
+    GET_FORUM_SECTIONS_REQUEST, // 获取分区列表请求
+    GET_FORUM_SECTIONS_SUCCESS, // 获取分区列表成功
     CREATE_THREAD_REQUEST,      // 创建主题请求
     CREATE_THREAD_SUCCESS,      // 创建主题成功
     DELETE_THREAD_REQUEST,      // 删除主题请求
     DELETE_THREAD_SUCCESS,      // 删除主题成功
+    SET_THREAD_ESSENCE_REQUEST, // 设置精华帖请求
+    SET_THREAD_ESSENCE_SUCCESS, // 设置精华帖成功
     GET_POSTS_REQUEST,          // 获取回复请求
     GET_POSTS_SUCCESS,          // 获取回复成功
     CREATE_POST_REQUEST,        // 创建回复请求
     CREATE_POST_SUCCESS,        // 创建回复成功
     DELETE_POST_REQUEST,        // 删除回复请求
     DELETE_POST_SUCCESS,        // 删除回复成功
+    TOGGLE_THREAD_LIKE_REQUEST, // 切换主题点赞请求
+    TOGGLE_THREAD_LIKE_SUCCESS, // 切换主题点赞成功
+    TOGGLE_POST_LIKE_REQUEST,   // 切换回复点赞请求
+    TOGGLE_POST_LIKE_SUCCESS,   // 切换回复点赞成功
+    CREATE_SUB_REPLY_REQUEST,   // 创建子回复请求
+    CREATE_SUB_REPLY_SUCCESS,   // 创建子回复成功
+    CREATE_QUOTE_REPLY_REQUEST, // 创建引用回复请求
+    CREATE_QUOTE_REPLY_SUCCESS, // 创建引用回复成功
+    SEARCH_THREADS_REQUEST,     // 搜索帖子请求
+    SEARCH_THREADS_SUCCESS,     // 搜索帖子成功
+    SEARCH_THREADS_FAIL,        // 搜索帖子失败
     
     // 文件资源模块
     GET_COURSE_FILES_REQUEST,   // 获取课程文件请求
